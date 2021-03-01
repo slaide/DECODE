@@ -75,6 +75,9 @@ class EmitterSet:
         self.xyz_sig = None
         self.phot_sig = None
         self.bg_sig = None
+        
+        # Combined error estimates
+        self.comb_sig = None
 
         self._set_typed(xyz=xyz, phot=phot, frame_ix=frame_ix, id=id, prob=prob, bg=bg,
                         xyz_cr=xyz_cr, phot_cr=phot_cr, bg_cr=bg_cr,
@@ -319,6 +322,8 @@ class EmitterSet:
             self.xyz_sig = xyz_sig.type(f_type) if xyz_sig is not None else float('nan') * torch.ones_like(self.xyz)
             self.phot_sig = phot_sig.type(f_type) if phot_sig is not None else float('nan') * torch.ones_like(self.phot)
             self.bg_sig = bg_sig.type(f_type) if bg_sig is not None else float('nan') * torch.ones_like(self.bg)
+            
+            self.comb_sig = self.calc_comb_sig(xyz_sig.type(f_type)) if xyz_sig is not None else float('nan') * torch.ones_like(self.xyz[:,0])
 
         else:
             self.xyz = torch.zeros((0, 3)).type(f_type)
@@ -337,6 +342,9 @@ class EmitterSet:
             self.xyz_sig = float('nan') * torch.ones((0, 3)).type(f_type)
             self.phot_sig = float('nan') * torch.ones_like(self.prob)
             self.bg_sig = float('nan') * torch.ones_like(self.bg)
+            
+            self.comb_sig = float('nan') * torch.ones((0,)).type(f_type)
+            
 
     def _inplace_replace(self, em):
         """
@@ -673,42 +681,38 @@ class EmitterSet:
         k = chunks
         # https://stackoverflow.com/questions/2130016/splitting-a-list-into-n-parts-of-approximately-equal-length/37414115#37414115
         return [l[i * (n // k) + min(i, n % k):(i+1) * (n // k) + min(i+1, n % k)] for i in range(k)]
+    
+    def calc_comb_sig(self, xyz_sig, dim=3):
 
-    def filter_by_sigma(self, fraction: float, dim: Optional[int] = None, return_low=True):
+        x_sig_var = torch.var(xyz_sig[:, 0])
+        y_sig_var = torch.var(xyz_sig[:, 1])
+        tot_var = xyz_sig[:, 0] ** 2 + (torch.sqrt(x_sig_var / y_sig_var) * xyz_sig[:, 1]) ** 2
+
+        if self.dim() ==3:
+            z_sig_var = torch.var(xyz_sig[:, 2])
+            tot_var += (np.sqrt(x_sig_var / z_sig_var) * xyz_sig[:, 2]) ** 2        
+            
+        return np.sqrt(tot_var)
+
+    def filter_by_sigma(self, fraction: float, return_low=True):
         """
         Filter by sigma values. Returns EmitterSet.
 
         Args:
             fraction: relative fraction of emitters remaining after filtering. Ranges from 0. to 1.
-            dim: 2 or 3 for taking into account z. If None, it will be autodetermined.
             return_low: 
                 if True return the fraction of emitter with the lowest sigma values. 
                 if False return the (1-fraction) with the highest sigma values.
 
         """
-        if dim is None:
-            is_3d = False if self.dim() == 2 else True
-        else:
-            is_3d = False if dim == 2 else True
-
         if fraction == 1.:
             return self
-
-        xyz_sig = self.xyz_sig
-
-        x_sig_var = torch.var(xyz_sig[:, 0])
-        y_sig_var = torch.var(xyz_sig[:, 1])
-        z_sig_var = torch.var(xyz_sig[:, 2])
-        tot_var = xyz_sig[:, 0] ** 2 + (torch.sqrt(x_sig_var / y_sig_var) * xyz_sig[:, 1]) ** 2
-
-        if is_3d:
-            tot_var += (np.sqrt(x_sig_var / z_sig_var) * xyz_sig[:, 2]) ** 2
-
-        max_s = np.percentile(tot_var.cpu().numpy(), fraction * 100.)
+        
+        max_s = np.percentile(self.comb_sig.cpu().numpy(), fraction * 100.)
         if return_low:
-            filt_sig = torch.where(tot_var < max_s)
+            filt_sig = torch.where(self.comb_sig < max_s)
         else:
-            filt_sig = torch.where(tot_var > max_s)
+            filt_sig = torch.where(self.comb_sig > max_s)
 
         return self[filt_sig]
 
