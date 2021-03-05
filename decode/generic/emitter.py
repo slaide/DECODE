@@ -682,7 +682,7 @@ class EmitterSet:
         # https://stackoverflow.com/questions/2130016/splitting-a-list-into-n-parts-of-approximately-equal-length/37414115#37414115
         return [l[i * (n // k) + min(i, n % k):(i+1) * (n // k) + min(i+1, n % k)] for i in range(k)]
     
-    def calc_comb_sig(self, xyz_sig, dim=3):
+    def calc_comb_sig(self, xyz_sig):
 
         x_sig_var = torch.var(xyz_sig[:, 0])
         y_sig_var = torch.var(xyz_sig[:, 1])
@@ -707,6 +707,11 @@ class EmitterSet:
         """
         if fraction == 1.:
             return self
+        
+        if hasattr(self, 'comb_sig'):
+            comb_sig = self.comb_sig
+        else:
+            comb_sig = self.calc_comb_sig(xyz_sig)
         
         max_s = np.percentile(self.comb_sig.cpu().numpy(), fraction * 100.)
         if return_low:

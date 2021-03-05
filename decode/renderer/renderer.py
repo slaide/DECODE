@@ -219,70 +219,70 @@ class Renderer3D(Renderer):
 
         return int_hist, col_hist
     
-class Renderer2D_auto_sig(Renderer2D):
+# class Renderer2D_auto_sig(Renderer2D):
     
-    def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100):
-        super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=None, clip_percentile=clip_percentile)
+#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100):
+#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=None, clip_percentile=clip_percentile)
         
-        self.n_sig_bins = n_sig_bins
-        self.sigma_scale = sigma_scale
+#         self.n_sig_bins = n_sig_bins
+#         self.sigma_scale = sigma_scale
         
-    def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
+#     def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
 
-        em, xyz_extent = self._apply_extents(em)
+#         em, xyz_extent = self._apply_extents(em)
 
-        hist_col = []
+#         hist_col = []
         
-        for i in range(self.n_sig_bins):
+#         for i in range(self.n_sig_bins):
 
-            sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
-            em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
-            sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
-            sigma_blur *= self.sigma_scale
+#             sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
+#             em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
+#             sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
+#             sigma_blur *= self.sigma_scale
             
-            hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], px_size=self.px_size)   
-            hist = gaussian_filter(hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size])
+#             hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], px_size=self.px_size)   
+#             hist = gaussian_filter(hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size])
             
-            hist_col.append(hist)
+#             hist_col.append(hist)
             
-        hist = np.array(hist_col).sum(0)
+#         hist = np.array(hist_col).sum(0)
             
-        if self.clip_percentile is not None:
-            hist = np.clip(hist, 0., np.percentile(hist, self.clip_percentile))
+#         if self.clip_percentile is not None:
+#             hist = np.clip(hist, 0., np.percentile(hist, self.clip_percentile))
             
-        return torch.from_numpy(hist)    
+#         return torch.from_numpy(hist)    
     
     
-class Renderer3D_auto_sig(Renderer3D):
+# class Renderer3D_auto_sig(Renderer3D):
     
-    def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100, gamma=1):
-        super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=zextent, clip_percentile=clip_percentile, gamma=gamma)
+#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100, gamma=1):
+#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=zextent, clip_percentile=clip_percentile, gamma=gamma)
         
-        self.n_sig_bins = n_sig_bins
-        self.sigma_scale = sigma_scale
+#         self.n_sig_bins = n_sig_bins
+#         self.sigma_scale = sigma_scale
         
-    def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
+#     def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
 
-        em, xyz_extent = self._apply_extents(em)
+#         em, xyz_extent = self._apply_extents(em)
 
-        int_col = []
-        col_col = []
+#         int_col = []
+#         col_col = []
         
-        for i in range(self.n_sig_bins):
+#         for i in range(self.n_sig_bins):
 
-            sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
-            em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
-            sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
-            sigma_blur *= self.sigma_scale
+#             sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
+#             em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
+#             sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
+#             sigma_blur *= self.sigma_scale
 
-            int_hist, col_hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], zextent=xyz_extent[self.plot_axis[2]], px_size=self.px_size)
+#             int_hist, col_hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], zextent=xyz_extent[self.plot_axis[2]], px_size=self.px_size)
             
-            int_col.append(gaussian_filter(int_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
-            col_col.append(gaussian_filter(col_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
+#             int_col.append(gaussian_filter(int_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
+#             col_col.append(gaussian_filter(col_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
             
-        int_hist = np.array(int_col).sum(0)
-        col_hist = np.array(col_col).sum(0)
+#         int_hist = np.array(int_col).sum(0)
+#         col_hist = np.array(col_col).sum(0)
             
-        RGB = self._hists_to_rgb(int_hist, col_hist)
+#         RGB = self._hists_to_rgb(int_hist, col_hist)
 
-        return torch.from_numpy(RGB)
+#         return torch.from_numpy(RGB)
