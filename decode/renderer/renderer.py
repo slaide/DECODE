@@ -20,7 +20,7 @@ class Renderer(ABC):
 
     """
 
-    def __init__(self, plot_axis: tuple, xextent: tuple, yextent: tuple, px_size: float, abs_clip, perc_clip, gamma):
+    def __init__(self, plot_axis: tuple, xextent: tuple, yextent: tuple, px_size: float, abs_clip, perc_clip, contrast):
         super().__init__()
 
         self.xextent = xextent
@@ -31,7 +31,7 @@ class Renderer(ABC):
         self.abs_clip = abs_clip
         self.perc_clip = perc_clip
         
-        self.gamma = gamma
+        self.contrast = contrast
         
         assert self.abs_clip is None or self.perc_clip is None, "Define either an absolute or a percentage value for clipping, but not both"
 
@@ -62,20 +62,14 @@ class Renderer(ABC):
         """
         raise NotImplementedError
 
-    def enhance_contrast(self, img_array):
-
-        img = PIL.Image.fromarray(np.array(np.round(img_array*256), dtype='uint8'))
-        enhancer = PIL.ImageEnhance.Contrast(img)
-        return np.array(enhancer.enhance(self.gamma))
-
 class Renderer2D(Renderer):
     """
     2D Renderer with constant gaussian.
 
     """
 
-    def __init__(self, px_size, sigma_blur, plot_axis=(0, 1), xextent=None, yextent=None, abs_clip=None, perc_clip=None, gamma=1):
-        super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, gamma=gamma)
+    def __init__(self, px_size, sigma_blur, plot_axis=(0, 1), xextent=None, yextent=None, abs_clip=None, perc_clip=None, contrast=1):
+        super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, contrast=contrast)
 
         self.sigma_blur = sigma_blur
 
@@ -98,17 +92,17 @@ class Renderer2D(Renderer):
 
         hist = self._hist2d(em.xyz_nm[:, self.plot_axis].numpy(), xextent=self.xextent, yextent=self.yextent,
                             px_size=self.px_size)
-
         
         if self.perc_clip is not None:
             hist = np.clip(hist, 0., hist.max()*self.perc_clip)
         if self.abs_clip is not None:
-            hist = np.clip(hist, 0., self.abs_clip)
+            hist = np.clip(hist, 0., self.abs_clip)  
             
         if self.sigma_blur is not None:
             hist = gaussian_filter(hist, sigma=[self.sigma_blur / self.px_size, self.sigma_blur / self.px_size])
-        if self.gamma != 1:
-            hist = self.enhance_contrast(hist)
+            
+        hist = np.clip(hist, 0, hist.max()/self.contrast)
+            
         return torch.from_numpy(hist)
 
     @staticmethod
@@ -129,8 +123,8 @@ class Renderer3D(Renderer):
     """
 
     def __init__(self, px_size, sigma_blur, plot_axis=(0, 1, 2), xextent=None, yextent=None, zextent=None,
-                 abs_clip=None, perc_clip=None, gamma=1):
-        super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, gamma=gamma)
+                 abs_clip=None, perc_clip=None, contrast=1):
+        super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, contrast=contrast)
 
         self.sigma_blur = sigma_blur
         self.zextent = zextent
@@ -179,14 +173,16 @@ class Renderer3D(Renderer):
             z_avg = col_hist / int_hist
             
         if self.perc_clip is not None:
-            int_hist = np.clip(int_hist, 0., int_hist.max()*self.perc_clip)
+            int_hist = np.clip(int_hist*self.contrast, 0., int_hist.max()*self.perc_clip)
             val = int_hist / int_hist.max()
         elif self.abs_clip is not None:
-            int_hist = np.clip(int_hist, 0., self.abs_clip)        
+            int_hist = np.clip(int_hist, 0., self.abs_clip) 
             val = int_hist / self.abs_clip
         else:
             val = int_hist / int_hist.max()           
-        
+            
+        val *= self.contrast
+            
         z_avg[np.isnan(z_avg)] = 0
         sat = np.ones(int_hist.shape)
         hue = np.interp(z_avg,np.linspace(0,1,256),self.jet_hue)
@@ -200,8 +196,6 @@ class Renderer3D(Renderer):
                             range(3)]).transpose(1, 2, 0)
     
         RGB = np.clip(RGB, 0, 1)
-        if self.gamma != 1:
-            RGB = self.enhance_contrast(RGB)        
         return torch.from_numpy(RGB)
 
     @staticmethod
@@ -255,8 +249,8 @@ class Renderer3D(Renderer):
     
 # class Renderer3D_auto_sig(Renderer3D):
     
-#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100, gamma=1):
-#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=zextent, clip_percentile=clip_percentile, gamma=gamma)
+#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100, contrast=1):
+#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=zextent, clip_percentile=clip_percentile, contrast=contrast)
         
 #         self.n_sig_bins = n_sig_bins
 #         self.sigma_scale = sigma_scale
