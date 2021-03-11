@@ -12,7 +12,7 @@ class TestRenderer2D:
     @pytest.fixture()
     def rend(self):
         return renderer.Renderer2D(plot_axis = (0,1), xextent=(0., 100.), yextent=(0., 100.), px_size=10., sigma_blur=10.,
-                                   clip_percentile=None)
+                                   perc_clip=None, abs_clip=None)
 
     @pytest.fixture()
     def em(self):
@@ -38,7 +38,7 @@ class TestRenderer3D:
     @pytest.fixture()
     def rend(self):
         return renderer.Renderer3D(plot_axis = (0,1,2), xextent=(0., 100.), yextent=(0., 100.), zextent=(-100., 100.), px_size=10., sigma_blur=10.,
-                                   clip_percentile=None)
+                                   perc_clip=None, abs_clip=None)
 
     @pytest.fixture()
     def em(self):

@@ -20,7 +20,7 @@ class Renderer(ABC):
 
     """
 
-    def __init__(self, plot_axis: tuple, xextent: tuple, yextent: tuple, px_size: float, abs_clip, perc_clip, contrast):
+    def __init__(self, plot_axis: tuple, xextent: tuple, yextent: tuple, px_size: float, abs_clip: float, perc_clip: float, contrast: float):
         super().__init__()
 
         self.xextent = xextent
@@ -70,7 +70,18 @@ class Renderer2D(Renderer):
 
     def __init__(self, px_size, sigma_blur, plot_axis=(0, 1), xextent=None, yextent=None, abs_clip=None, perc_clip=None, contrast=1):
         super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, contrast=contrast)
+        """
 
+        Args:
+            px_size: pixel size of the output image in nm
+            sigma_blur: sigma of the gaussian blur applied in nm
+            plot_axis: determines which dimensions get plotted. 0,1,2 = x,y,z. (0,1) is x over y, (2,1) is z over y.
+            xextent: extent in x in nm
+            yextent: extent in y in nm
+            abs_clip: absolute clipping value of the histogram in counts
+            perc_clip: clipping value relative to the maximum count. i.e. perc_clip = 0.8 clips at 0.8*hist.max()
+            contrast: scaling factor to increase contrast
+        """
         self.sigma_blur = sigma_blur
 
     def render(self, em, ax=None, cmap: str = 'gray'):
@@ -125,7 +136,19 @@ class Renderer3D(Renderer):
     def __init__(self, px_size, sigma_blur, plot_axis=(0, 1, 2), xextent=None, yextent=None, zextent=None,
                  abs_clip=None, perc_clip=None, contrast=1):
         super().__init__(plot_axis=plot_axis, xextent=xextent, yextent=yextent, px_size=px_size, abs_clip=abs_clip, perc_clip=perc_clip, contrast=contrast)
+        """
 
+        Args:
+            px_size: pixel size of the output image in nm
+            sigma_blur: sigma of the gaussian blur applied in nm
+            plot_axis: determines which dimensions get plotted. 0,1,2 = x,y,z. (0,1,2) is x over y, colored by z.
+            xextent: extent in x in nm
+            yextent: extent in y in nm
+            zextent: extent in z in nm. Emitters outside of the z range have their z value clipped, but are still rendered. 
+            abs_clip: absolute clipping value of the histogram in counts
+            perc_clip: clipping value relative to the maximum count. i.e. perc_clip = 0.8 clips at 0.8*hist.max()
+            contrast: scaling factor to increase contrast
+        """
         self.sigma_blur = sigma_blur
         self.zextent = zextent
         
@@ -213,70 +236,3 @@ class Renderer3D(Renderer):
 
         return int_hist, col_hist
     
-# class Renderer2D_auto_sig(Renderer2D):
-    
-#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100):
-#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=None, clip_percentile=clip_percentile)
-        
-#         self.n_sig_bins = n_sig_bins
-#         self.sigma_scale = sigma_scale
-        
-#     def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
-
-#         em, xyz_extent = self._apply_extents(em)
-
-#         hist_col = []
-        
-#         for i in range(self.n_sig_bins):
-
-#             sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
-#             em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
-#             sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
-#             sigma_blur *= self.sigma_scale
-            
-#             hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], px_size=self.px_size)   
-#             hist = gaussian_filter(hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size])
-            
-#             hist_col.append(hist)
-            
-#         hist = np.array(hist_col).sum(0)
-            
-#         if self.clip_percentile is not None:
-#             hist = np.clip(hist, 0., np.percentile(hist, self.clip_percentile))
-            
-#         return torch.from_numpy(hist)    
-    
-    
-# class Renderer3D_auto_sig(Renderer3D):
-    
-#     def __init__(self, px_size, n_sig_bins=10, sigma_scale=1, plot_axis = (0,1,2), xextent=None, yextent=None, zextent=None, clip_percentile=100, contrast=1):
-#         super().__init__(px_size=px_size, sigma_blur=None, plot_axis=plot_axis, xextent=xextent, yextent=yextent, zextent=zextent, clip_percentile=clip_percentile, contrast=contrast)
-        
-#         self.n_sig_bins = n_sig_bins
-#         self.sigma_scale = sigma_scale
-        
-#     def forward(self, em: emitter.EmitterSet) -> torch.Tensor:
-
-#         em, xyz_extent = self._apply_extents(em)
-
-#         int_col = []
-#         col_col = []
-        
-#         for i in range(self.n_sig_bins):
-
-#             sig_extent = [np.percentile(em.comb_sig.cpu().numpy(), (i/self.n_sig_bins) * 100.), np.percentile(em.comb_sig.cpu().numpy(), ((i+1)/self.n_sig_bins) * 100.)]
-#             em_sub = em[(em.comb_sig > sig_extent[0]) * (em.comb_sig < sig_extent[1])]
-#             sigma_blur = (em_sub.comb_sig.mean() * em.px_size.mean()).numpy()
-#             sigma_blur *= self.sigma_scale
-
-#             int_hist, col_hist = self._hist2d(em_sub.xyz_nm[:, self.plot_axis].numpy(), xextent=xyz_extent[self.plot_axis[0]], yextent=xyz_extent[self.plot_axis[1]], zextent=xyz_extent[self.plot_axis[2]], px_size=self.px_size)
-            
-#             int_col.append(gaussian_filter(int_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
-#             col_col.append(gaussian_filter(col_hist, sigma=[sigma_blur / self.px_size, sigma_blur / self.px_size]))
-            
-#         int_hist = np.array(int_col).sum(0)
-#         col_hist = np.array(col_col).sum(0)
-            
-#         RGB = self._hists_to_rgb(int_hist, col_hist)
-
-#         return torch.from_numpy(RGB)
