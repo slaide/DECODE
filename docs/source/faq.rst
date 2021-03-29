@@ -84,3 +84,9 @@ Errors and Software Issues
    .yaml file: ``param -> Hardware -> torch_multiprocessing_sharing_strategy``.
    The sharing strategies depend on your system. Please have a look at `Pytorch
    Multiprocessing <https://pytorch.org/docs/stable/multiprocessing.html>`__.
+
+-  I have problems that are not mentioned anywhere in this documentation.
+
+   You can add your question to the `discussions page
+   <https://github.com/TuragaLab/DECODE/discussions>`__ on GitHub, we will do
+   our best to help you.
