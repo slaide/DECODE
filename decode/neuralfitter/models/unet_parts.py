@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 
 class double_conv(nn.Module):
-    '''(conv => BN => ReLU) * 2'''
+    '''(conv => BatchNorm => ReLU) * 2'''
     def __init__(self, in_ch, out_ch):
         super(double_conv, self).__init__()
         self.conv = nn.Sequential(

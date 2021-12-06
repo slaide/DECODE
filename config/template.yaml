@@ -1,17 +1,17 @@
 CameraPreset:
 Camera:
   baseline: 100.0
-  convert2photons: true
-  e_per_adu: 45.0
-  em_gain: 300.0
+  convert2photons: true # "convert back to photon units" converts simulated pixel values to photon units (values are simulated in ADUs)
+  e_per_adu: 0.3
+  em_gain: # blank for cMOS cameras
   px_size:
-  - 100.0
-  - 100.0
-  qe: 1.0
-  read_sigma: 74.4
-  spur_noise: 0.002
+  - 65.0
+  - 65.0
+  qe: 1.0 # quantum efficiency
+  read_sigma: 74.4 # median read (readout) noise (in electrons?)
+  spur_noise: 0.002 # spurious noise (background noise in camera sensors)
 Evaluation:
-  dist_ax: 500.0
+  dist_ax: 500.0 # i think this is the distance within which emitter positions are matched for evaluation (relevant for classification, and upper bound for localization precision)
   dist_lat: 250.0
   dist_vol:
   match_dims: 3
@@ -19,12 +19,12 @@ Hardware:
   device: cuda
   device_ix: 0
   device_simulation: cuda
-  num_worker_train: 4
-  torch_threads: 4
-  unix_niceness: 0
+  num_worker_train: 4 # change
+  torch_threads: 4 # change
+  unix_niceness: 0 # this is a unix process thing (generally dont worry about it. see python os.nice())
   torch_multiprocessing_sharing_strategy:  # if you get multiprocessing errors, increase ulimit or set to 'file_system'
 HyperParameter:
-  arch_param:
+  arch_param: # what do these do?
     activation: ReLU
     depth:
     depth_shared: 2
@@ -56,7 +56,7 @@ HyperParameter:
     - 1.0
   disabled_attributes:
   ds_lifetime:
-  epoch_0:
+  epoch_0: # what is this?
   epochs: 10000
   fgbg_factor:
   grad_mod: true
@@ -88,10 +88,10 @@ Scaling:  # if some values are missing they will be auto-set as described in the
   phot_max:  # intensity_mu + 8 * sigma
   z_max:  # 1.2 * upper simulation extent
 Simulation:
-  bg_uniform: 90.0
-  density:
-  emitter_av: 20
-  emitter_extent:
+  bg_uniform: 90.0 # can also be a tuple of values
+  density: # unit?
+  emitter_av: 20 # average number of emitters per frame (?)
+  emitter_extent: # x/y should not be changed (apparently)
   - - -0.5
     - 39.5
   - - -0.5
@@ -105,10 +105,10 @@ Simulation:
   - 10000.0
   - 3000.0
   intensity_th:
-  lifetime_avg: 2.0
+  lifetime_avg: 2.0 # average number of frames the emitter are alive for (with the blinking emitter model)
   mode: acquisition  # acquisition / samples
   photon_range:
-  psf_extent:
+  psf_extent: # x/y should not be changed (apparently)
   - - -0.5
     - 39.5
   - - -0.5
@@ -120,7 +120,7 @@ Simulation:
 TestSet:
   mode:  simulated  # static / simulated
   test_size: 512
-  frame_extent:
+  frame_extent: # x/y should not be changed (apparently)
   - - -0.5
     - 39.5
   - - -0.5

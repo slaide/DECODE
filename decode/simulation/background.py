@@ -9,7 +9,7 @@ from decode.simulation import psf_kernel as psf_kernel
 
 class Background(ABC):
     """
-    Abstract background class. All childs must implement a sample method.
+    Abstract background class. All children must implement a sample method.
     """
 
     _forward_modes = ('like', 'cum', 'tuple')

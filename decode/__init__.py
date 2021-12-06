@@ -28,5 +28,4 @@ if torch.cuda.is_available():
     if float(device_capa) < 3.7:
         warnings.warn(
             f"Your GPU {torch.cuda.get_device_name()} has cuda capability {device_capa} and is no longer supported (minimum is 3.7)."
-            f"\nIf you have multiple devices make sure to select the index of the most modern one."
-            f"\nOtherwise you can use your CPU to run DECODE or switch to Google Colab.", category=UserWarning)
+            f"\nIf you have multiple devices make sure to select the index of the most modern one.", category=UserWarning)

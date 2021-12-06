@@ -411,7 +411,7 @@ class CubicSplinePSF(PSF):
     def sanity_check(self):
         """
         Perform some class specific safety checks
-        Returns:
+        Returns: (nothing)
 
         """
         """Test whether extent corresponds to img shape"""
@@ -682,7 +682,7 @@ class CubicSplinePSF(PSF):
 
     def crlb(self, xyz: torch.Tensor, phot: torch.Tensor, bg: torch.Tensor, inversion=None):
         """
-        Computes the Cramer-Rao bound. Outputs ROIs additionally (since its computationally free of charge).
+        Computes the Cramer-Rao bound. Outputs ROIs additionally (since it's computationally free of charge).
 
         Args:
             xyz:

@@ -56,22 +56,22 @@ class Gamma(NoiseDistribution):
 
     def forward(self, x):
         # disable validate_args because 0 is okay for sampling
-        return torch.distributions.gamma.Gamma(x, 1 / self.scale, validate_args=False).sample()
+        return torch.distributions.gamma.Gamma(concentration=x, rate=1 / self.scale, validate_args=False).sample()
 
 
 class Gaussian(NoiseDistribution):
     """
-    Gaussian distribution.
+    Gaussian distribution. (Normal distribution)
 
     Attributes:
-        sigma (float, torch.Tensor): standard deviation fo the gaussian
+        sigma (float, torch.Tensor): standard deviation of the gaussian
     """
 
     def __init__(self, sigma: (float, torch.Tensor)):
         """
 
         Args:
-            sigma: standard deviation fo the gaussian
+            sigma: standard deviation of the gaussian
         """
         super().__init__()
         self.sigma = sigma

@@ -102,7 +102,7 @@ class Photon2Camera(Camera):
         camera /= self.e_per_adu
         camera = camera.floor()
 
-        """Add Manufacturer baseline. Make sure it's not below 0."""
+        """Add Manufacturer baseline, then make sure it's not below 0."""
         camera += self.baseline
         camera = torch.max(camera, torch.tensor([0.]).to(camera.device))
 
@@ -199,7 +199,7 @@ class SCMOS(Photon2Camera):
 
         Args:
             x: model image
-            device:
+            device: torch device (e.g. cpu, cuda:0)
 
         Returns:
             Sampled noisy image
@@ -225,7 +225,7 @@ class SCMOS(Photon2Camera):
 
         Args:
             x: model image
-            device:
+            device: torch device (e.g. cpu, cuda:0)
 
         Returns:
             Sampled noisy image

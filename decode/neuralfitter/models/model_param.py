@@ -303,7 +303,7 @@ class MLTHeads(nn.Module):
             groups_1 = None
             groups_2 = None
 
-        padding = padding
+        padding = padding # ?
 
         self.core = self._make_core(in_channels, groups_1, groups_2, activation, padding, self.norm)
         self.out_conv = nn.Conv2d(in_channels, out_channels, kernel_size=last_kernel, padding=False)

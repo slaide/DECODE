@@ -11,7 +11,7 @@ from . import structure_prior
 
 class EmitterSampler(ABC):
     """
-    Abstract emitter sampler. All implementations / childs must implement a sample method.
+    Abstract emitter sampler. All implementations / children must implement a sample method.
     """
 
     def __init__(self, structure: structure_prior.StructurePrior, xy_unit: str, px_size: tuple):
@@ -88,7 +88,7 @@ class EmitterSamplerFrameIndependent(EmitterSampler):
 
     def sample_n(self, n: int) -> decode.generic.emitter.EmitterSet:
         """
-        Sample 'n' emitters, i.e. the number of emitters is given and is not sampled from the Poisson dist.
+        Sample 'n' emitters, i.e. the number of emitters is given and is not immediately sampled from the Poisson dist.
 
         Args:
             n: number of emitters

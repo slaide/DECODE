@@ -9,8 +9,8 @@ class SigmaMUNet(model_param.DoubleMUnet):
     ch_out = 10
     out_channels_heads = (1, 4, 4, 1)  # p head, phot,xyz_mu head, phot,xyz_sig head, bg head
 
-    sigmoid_ch_ix = [0, 1, 5, 6, 7, 8, 9]  # channel indices with respective activation function
-    tanh_ch_ix = [2, 3, 4]
+    sigmoid_ch_ix = [0, 1,          5, 6, 7, 8, 9]  # channel indices with respective activation function
+    tanh_ch_ix =          [2, 3, 4]
 
     p_ch_ix = [0]  # channel indices of the respective parameters
     pxyz_mu_ch_ix = slice(1, 5)

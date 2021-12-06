@@ -250,7 +250,7 @@ class UNet2d(UNetBase):
                                      activation)
 
         if self.p_dropout is not None:
-            sequence.add_module('droupout', nn.Dropout2d(p=self.p_dropout))
+            sequence.add_module('dropout', nn.Dropout2d(p=self.p_dropout))
 
         return sequence
 
