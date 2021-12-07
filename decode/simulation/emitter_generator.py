@@ -150,16 +150,16 @@ class EmitterSamplerBlinking(EmitterSamplerFrameIndependent):
         self._emitter_av_total = self._em_avg * self._num_frames_plus / (self.lifetime_avg + 1)
 
     @property
+    def num_frames(self):
+        return self.frame_range[1] - self.frame_range[0] + 1
+
+    @property
     def _frame_range_plus(self):
         """
         Frame range including buffer in front and end to account for build up effects.
 
         """
         return self.frame_range[0] - 3 * self.lifetime_avg, self.frame_range[1] + 3 * self.lifetime_avg
-
-    @property
-    def num_frames(self):
-        return self.frame_range[1] - self.frame_range[0] + 1
 
     @property
     def _num_frames_plus(self):
@@ -230,3 +230,11 @@ class EmitterPopperSingle:
 @deprecated(reason="Deprecated in favour of EmitterSamplerBlinking.", version="0.1.dev")
 class EmitterPopperMultiFrame:
     pass
+
+class NonBlinkingEmitterSampler(EmitterSamplerFrameIndependent):
+    """
+    emitter that does not blink (as per experimental design)
+    , though design may include emitter movement (depending on the relevance of emitter tracking in the future)
+    """
+    def __init__(self,):
+        raise Exception("todo")

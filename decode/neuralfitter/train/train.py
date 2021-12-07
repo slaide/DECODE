@@ -168,7 +168,7 @@ def live_engine_setup(param_file: str, device_overwrite: str = None, debug: bool
                                                                          "dphot_red_sig"]),
              decode.neuralfitter.utils.logger.DictLogger()])
 
-    sim_train, sim_test = setup_random_simulation(param)
+    sim_train, sim_test = setup_random_simulation(param) # TODO replace random simulation with more structured simulation of flowcell layout
     ds_train, ds_test, model, model_ls, optimizer, criterion, lr_scheduler, grad_mod, post_processor, matcher, ckpt = \
         setup_trainer(sim_train, sim_test, logger, model_out, ckpt_path, device, param)
     dl_train, dl_test = setup_dataloader(param, ds_train, ds_test)
@@ -285,7 +285,7 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
         'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
     }
 
-    model = models_available[param.HyperParameter.architecture]
+    model = models_available[param.HyperParameter.architecture] # throws if name is unrecognized
     model = model.parse(param)
 
     model_ls = decode.utils.model_io.LoadSaveModel(model,
@@ -300,7 +300,7 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
         'AdamW': torch.optim.AdamW
     }
 
-    optimizer = optimizer_available[param.HyperParameter.optimizer]
+    optimizer = optimizer_available[param.HyperParameter.optimizer] # throws if name is unrecognized
     optimizer = optimizer(model.parameters(), **param.HyperParameter.opt_param)
 
     """Loss function."""

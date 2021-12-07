@@ -1,9 +1,11 @@
+# decode/utils/reference_files/reference.yaml contains very similar information (but without the added comments)
 CameraPreset:
 Camera:
   baseline: 100.0
   convert2photons: true # "convert back to photon units" converts simulated pixel values to photon units (values are simulated in ADUs)
   e_per_adu: 0.3
   em_gain: # blank for cMOS cameras
+  mirror_dim:   # this field is only active during fitting per inference .py file
   px_size:
   - 65.0
   - 65.0
@@ -49,15 +51,15 @@ HyperParameter:
     use_last_nl:
   architecture: SigmaMUNet
   batch_size: 64
-  channels_in: 3
+  channels_in: 3 # number of frames used as input for second part of network (default: 3, set to 1 to 'disable' use of multiple frames)
   channels_out:
   chweight_stat:
     - 1.0
     - 1.0
   disabled_attributes:
-  ds_lifetime:
+  ds_lifetime: # what is ds? dataset? then what is dataset lifetime? (also: never used anywhere)
   epoch_0: # what is this?
-  epochs: 10000
+  epochs: 10000 # max number of epochs (also terminates when learning has stagnated)
   fgbg_factor:
   grad_mod: true
   emitter_label_photon_min: 100.0
@@ -73,9 +75,10 @@ HyperParameter:
     weight_decay: 0.1
   optimizer: AdamW
   photon_threshold:
-  pseudo_ds_size: 10000
+  pseudo_ds_size: 10000 # what is this?
 InOut:
-  calibration_file: data/Calibration/Paper/deepSTORM_Ref_AS-Exp_100nm_3dcal.mat  # cubic spline coefficients
+  calibration_file: data/calibration/flowcell_p65nm_z25nm_3dcal.mat  # cubic spline coefficients
+  checkpoint_init:   # initialise from checkpoint (i.e. resume training)
   experiment_out: network/2020-07-06  # main output dir
   model_init:
 PostProcessing: LookUp  # (blank) for no post-processing or LookUp, Consistency
@@ -88,8 +91,8 @@ Scaling:  # if some values are missing they will be auto-set as described in the
   phot_max:  # intensity_mu + 8 * sigma
   z_max:  # 1.2 * upper simulation extent
 Simulation:
-  bg_uniform: 90.0 # can also be a tuple of values
-  density: # unit?
+  bg_uniform: 90.0 # can tuple of values, or a single value
+  density: # unit? also density xor emitter_av must be specified
   emitter_av: 20 # average number of emitters per frame (?)
   emitter_extent: # x/y should not be changed (apparently)
   - - -0.5
@@ -98,15 +101,15 @@ Simulation:
     - 39.5
   - - -750
     - 750
-  img_size:
+  img_size: # input size
   - 40
   - 40
-  intensity_mu_sig:
+  intensity_mu_sig: # tuple
   - 10000.0
   - 3000.0
   intensity_th:
   lifetime_avg: 2.0 # average number of frames the emitter are alive for (with the blinking emitter model)
-  mode: acquisition  # acquisition / samples
+  mode: acquisition  # acquisition / samples (argument determines frame range size calculation)
   photon_range:
   psf_extent: # x/y should not be changed (apparently)
   - - -0.5

@@ -53,7 +53,9 @@ class RandomStructure(StructurePrior):
             >>> prior_struct = RandomStructure(xextent=(-0.5, 31.5), yextent=(-0.5, 31.5), zextent=(-750., 750.))
 
         """
+
         super().__init__()
+
         self.xextent = xextent
         self.yextent = yextent
         self.zextent = zextent
@@ -79,3 +81,11 @@ class RandomStructure(StructurePrior):
         return cls(xextent=param.Simulation.emitter_extent[0],
                    yextent=param.Simulation.emitter_extent[1],
                    zextent=param.Simulation.emitter_extent[2])
+
+class CellMaskStructure(StructurePrior):
+    """
+    sample emitters based on pixel values in a (cell) segmentation mask
+    , where px(i,j)=1 represents a cell at that pixel
+    """
+    def __init__(self,):
+        raise Exception("todo")
