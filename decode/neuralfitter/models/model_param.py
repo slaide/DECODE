@@ -148,7 +148,7 @@ class DoubleMUnet(nn.Module):
                                             skip_gn_level=skip_gn_level)
 
         assert ch_in in (1, 3)
-        # assert ch_out in (5, 6)
+        # assert ch_out in (5, 6) # what was this for?
         self.ch_in = ch_in
         self.ch_out = ch_out
         self.mt_heads = nn.ModuleList(
