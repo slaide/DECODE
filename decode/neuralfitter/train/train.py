@@ -185,7 +185,7 @@ def live_engine_setup(param_file: str, device_overwrite: str = None, debug: bool
         first_epoch = 0
 
     converges = False
-    n = 0
+    n = 0 # number of times training has been restarted (due to ?)
     n_max = param.HyperParameter.auto_restart_param.num_restarts
 
     while not converges and n < n_max:
@@ -200,6 +200,7 @@ def live_engine_setup(param_file: str, device_overwrite: str = None, debug: bool
         for i in range(first_epoch, param.HyperParameter.epochs):
             logger.add_scalar('learning/learning_rate', optimizer.param_groups[0]['lr'], i)
 
+            # no idea what this does
             if i >= 1:
                 _ = decode.neuralfitter.train_val_impl.train(
                     model=model,

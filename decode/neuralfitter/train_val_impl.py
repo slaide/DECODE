@@ -84,7 +84,7 @@ def test(model, loss, dataloader, epoch, device):
             x, y_tar, weight = ship_device([x, y_tar, weight], device)
 
             """
-            Forward the data.
+            Forward the data through the model.
             """
             y_out = model(x)
 

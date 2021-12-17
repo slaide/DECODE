@@ -221,20 +221,10 @@ class EmitterSamplerBlinking(EmitterSamplerFrameIndependent):
                    em_avg=param.Simulation.emitter_av,
                    intensity_th=param.Simulation.intensity_th)
 
-
-@deprecated(reason="Deprecated in favour of EmitterSamplerFrameIndependent.", version="0.1.dev")
-class EmitterPopperSingle:
-    pass
-
-
-@deprecated(reason="Deprecated in favour of EmitterSamplerBlinking.", version="0.1.dev")
-class EmitterPopperMultiFrame:
-    pass
-
-class NonBlinkingEmitterSampler(EmitterSamplerFrameIndependent):
+class StaticEmitterSampler(EmitterSamplerFrameIndependent):
     """
     emitter that does not blink (as per experimental design)
     , though design may include emitter movement (depending on the relevance of emitter tracking in the future)
     """
     def __init__(self,):
-        raise Exception("todo")
+        raise NotImplementedError

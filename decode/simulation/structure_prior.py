@@ -87,5 +87,19 @@ class CellMaskStructure(StructurePrior):
     sample emitters based on pixel values in a (cell) segmentation mask
     , where px(i,j)=1 represents a cell at that pixel
     """
-    def __init__(self,):
-        raise Exception("todo")
+    def __init__(self,xextent,yextent,zextent,mask):
+        raise NotImplementedError
+
+    @property
+    def area(self) -> float:
+        return (self.xextent[1] - self.xextent[0]) * (self.yextent[1] - self.yextent[0])
+
+    def sample(self, n: int) -> torch.Tensor:
+        raise NotImplementedError
+        
+    @classmethod
+    def parse(cls, param, mask):
+        return cls(xextent=param.Simulation.emitter_extent[0],
+                   yextent=param.Simulation.emitter_extent[1],
+                   zextent=param.Simulation.emitter_extent[2],
+                   mask=mask)

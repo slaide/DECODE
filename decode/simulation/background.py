@@ -234,3 +234,7 @@ class BgPerEmitterFromBgFrame:
         tar_em.bg[in_frame] = local_mean[bg_frame_ix[in_frame], 0, ix_x[in_frame], ix_y[in_frame]]
 
         return tar_em
+
+class MaskedBackground(Background):
+    def __init__(self,params):
+        raise NotImplementedError

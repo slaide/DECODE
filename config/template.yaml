@@ -43,8 +43,8 @@ HyperParameter:
     norm_head:
     norm_head_groups:
     p_dropout:
-    pool_mode: StrideConv
-    upsample_mode: nearest
+    pool_mode: StrideConv # can be StrideConv or MaxPool
+    upsample_mode: nearest # assuming this can be nearest, bilinear, linear..?
     recpt_bg:
     skip_gn_level:
     up_mode: upsample
@@ -58,7 +58,7 @@ HyperParameter:
     - 1.0
   disabled_attributes:
   ds_lifetime: # what is ds? dataset? then what is dataset lifetime? (also: never used anywhere)
-  epoch_0: # what is this?
+  epoch_0: # what is this? if training is continued from a checkpoint, the checkpoint also determines the index of the current epoch, maybe this was a debug parameter for development?
   epochs: 10000 # max number of epochs (also terminates when learning has stagnated)
   fgbg_factor:
   grad_mod: true
@@ -66,16 +66,16 @@ HyperParameter:
   loss_impl: MixtureModel
   learning_rate_scheduler: StepLR
   learning_rate_scheduler_param:
-    step_size: 10
-    gamma: 0.9
-  max_number_targets: 250
+    step_size: 10 # every 10 epochs \
+    gamma: 0.9 # reduce learning rate to 90% of former value
+  max_number_targets: 250 # what is this exactly? max number of predicted fluorophores? (which would be a post-processing parameter)
   moeller_gradient_rescale: false
   opt_param:
     lr: 0.0006
     weight_decay: 0.1
   optimizer: AdamW
   photon_threshold:
-  pseudo_ds_size: 10000 # what is this?
+  pseudo_ds_size: 10000 # what is this? i think this is the number of images sampled/simulated at the same time? unsure how this relates to training exactly
 InOut:
   calibration_file: data/calibration/flowcell_p65nm_z25nm_3dcal.mat  # cubic spline coefficients
   checkpoint_init:   # initialise from checkpoint (i.e. resume training)
