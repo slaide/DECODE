@@ -16,10 +16,10 @@ def setup_random_simulation(param):
         calib_file=param.InOut.calibration_file).init_spline(
         xextent=param.Simulation.psf_extent[0],
         yextent=param.Simulation.psf_extent[1],
-        img_shape=param.Simulation.img_size,
+        img_shape=param.Simulation.img_size, # input size. relevant for spline coefficient why?
         device=param.Hardware.device_simulation,
-        roi_size=param.Simulation.roi_size,
-        roi_auto_center=param.Simulation.roi_auto_center
+        roi_size=param.Simulation.roi_size, # relevant for spline coefficient why?
+        roi_auto_center=param.Simulation.roi_auto_center # relevant for spline coefficient why?
     )
 
     """Structure Prior"""
