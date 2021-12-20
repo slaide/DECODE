@@ -382,9 +382,11 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
             em_proc=em_filter,
             frame_proc=frame_proc,
             bg_frame_proc=bg_frame_proc,
-            tar_gen=tar_gen, weight_gen=None,
+            tar_gen=tar_gen, 
+            weight_gen=None,
             frame_window=param.HyperParameter.channels_in,
-            pad=None, return_em=False)
+            pad=None, 
+            return_em=False)
 
         train_ds.sample(True)
 
