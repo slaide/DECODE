@@ -257,7 +257,6 @@ class SMLMLiveDataset(SMLMStaticDataset):
         self._frames = frames.cpu()
         self._bg_frames = bg_frames.cpu()
 
-
 class SMLMAPrioriDataset(SMLMLiveDataset):
     """
     A SMLM Dataset where new data is sampled and processed in an 'a priori' manner, i.e. once per epoche. This is useful

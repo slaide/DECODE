@@ -46,7 +46,7 @@ def load_tif(path: (str, pathlib.Path), multifile=True) -> torch.Tensor:
 
     if frames.squeeze().ndim <= 2:
         warnings.warn(f"Frames seem to be of wrong dimension ({frames.size()}), "
-                      f"or could only find a single frame.", ValueError)
+                      f"or could only find a single frame.",Warning)
 
     return frames
 

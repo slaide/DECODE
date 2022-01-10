@@ -16,6 +16,8 @@ def decode_state() -> str:
     Returns git describe, decode version or decode version with invalid appended.
     """
 
+    return f"{decode.__version__}-patrick"
+
     p = Path(importlib.util.find_spec('decode').origin).parents[1]
 
     if _git_available:
@@ -31,6 +33,9 @@ def decode_state() -> str:
     else:
         return "vINVALID-recent-" + decode.__version__
 
+
+def is_my_fork():
+    return True
 
 if __name__ == '__main__':
     v = decode_state()

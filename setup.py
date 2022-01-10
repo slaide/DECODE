@@ -18,7 +18,7 @@ else:
         "numpy",
         # HACK: We omit torch version to be as flexible to the version
         # as we can so that slight changes on colab do not break so fast
-        # that's why we deviate from enviornment.yaml
+        # that's why we deviate from environment.yaml
         "torch",
         "click",
         "deprecated",
