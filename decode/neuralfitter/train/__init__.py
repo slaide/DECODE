@@ -1,2 +1,4 @@
 import decode.neuralfitter.train.random_simulation
+import decode.neuralfitter.train.random_masked_simulation
+import decode.neuralfitter.train.masked_simulation
 
