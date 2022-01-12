@@ -11,6 +11,7 @@
 #     then run this anywhere: $ python -m ipykernel install --user --name=decode_env # or replace decode_env with the name of the environment that contains the link to the modified DECODE package
 #     in a jupyter notebook, you will then see a button/dropdown where you can change the kernel of the running notebook instance, which you need to change to the name of the environment you specified in the line above
 #   done
+#   requires torchvision package for pranet, which can be installed with $ conda install --name decode_env_fork torchvision # which installs the cpu version, but that is fine for now
 
 # decode/utils/reference_files/reference.yaml contains very similar information (but without the added comments)
 CameraPreset:

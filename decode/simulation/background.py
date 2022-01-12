@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from decode.simulation import psf_kernel as psf_kernel
-
+import decode.utils
 
 class Background(ABC):
     """
@@ -236,5 +236,43 @@ class BgPerEmitterFromBgFrame:
         return tar_em
 
 class MaskedBackground(Background):
-    def __init__(self,params):
-        raise NotImplementedError
+    """
+        combines two uniform backgrounds:
+        - one uniform (flowcell) background across the whole image
+        - one additional 'uniform' (cell) background, with different parameters, that is sampled in the areas of the image where a cell is visible
+    """
+
+    def __init__(self, flowcell_background, cell_background, forward_return=None):
+        """
+        setup different background samplers for flowcell background, and cell background, which are combined during sampling
+        """
+
+        if flowcell_background is None or cell_background is None:
+            raise ValueError("flowcell and cell background need to be specified (seperately)!")
+
+        # TODO did not check how this should be taken into account for this new class.. (what it does exactly)
+        super().__init__(forward_return=forward_return)
+
+        self.flowcell_background=UniformBackground(bg_uniform=flowcell_background)
+        self.cell_background=UniformBackground(bg_uniform=cell_background)
+
+        self.cell_mask=decode.utils.frames_io.load_tif("flowcell_40px_mask.tif").cpu()[:,:,0]
+        self.cell_mask/=self.cell_mask.max()
+        self.cell_mask=1-self.cell_mask
+
+    @staticmethod
+    def parse(param):
+        return MaskedBackground(param.Simulation.bg_flowcell, param.Simulation.bg_cell)
+
+    def sample(self, size, device=torch.device('cpu')):
+        bg=self.flowcell_background.sample(size,device)
+
+        cell_background=self.cell_background.sample(size,device)
+
+        # mask uniformly sampled cell background, and do that in a loop because i dont yet know how broadcasting works in torch
+        for i in torch.arange(0,cell_background.shape[0]):
+            cell_background[i,:,:]*=self.cell_mask
+
+        bg+=cell_background
+
+        return bg

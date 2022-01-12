@@ -38,7 +38,7 @@ def setup_random_simulation(param):
         param, structure=prior_struct, frames=frame_range_train)
 
     """Define our background and noise model."""
-    bg = decode.simulation.background.UniformBackground.parse(param) # TODO implement a background simulation that samples two different background noise models, based on a cell segmentation mask
+    bg = decode.simulation.background.MaskedBackground.parse(param)
 
     if param.CameraPreset == 'Perfect':
         noise = decode.simulation.camera.PerfectCamera.parse(param)

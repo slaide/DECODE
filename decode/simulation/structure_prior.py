@@ -124,8 +124,6 @@ class CellMaskStructure(StructurePrior):
         self.cell_mask/=self.cell_mask.max()
         # then invert the values because the (current, exemplary) cell segmentation mask is inverted.. because someone did not pay attention
         self.cell_mask=1-self.cell_mask
-        # rotate image by 90 degrees because axis are 'inverted'? (inverted axis and rotation by 90 degress are not the same, but good enough for me, as long as it is consistent)
-        self.cell_mask=torch.rot90(self.cell_mask)
 
         # get indexable array (matrix) of positions in cell mask with non-zero entries
         self.cell_mask_nonzero_vector=self.cell_mask.nonzero(as_tuple=False)
