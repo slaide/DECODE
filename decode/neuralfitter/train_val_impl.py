@@ -1,6 +1,6 @@
 import torch
 import time
-from typing import Union
+from typing import Union, Optional
 
 from tqdm import tqdm
 from collections import namedtuple
@@ -64,7 +64,6 @@ def train(model, optimizer, loss, dataloader, grad_rescale, grad_mod, epoch, dev
 
 _val_return = namedtuple("network_output", ["loss", "x", "y_out", "y_tar", "weight", "em_tar"])
 
-
 def test(model, loss, dataloader, epoch, device):
 
     """Setup"""
@@ -82,6 +81,11 @@ def test(model, loss, dataloader, epoch, device):
 
             """Ship the data to the correct device"""
             x, y_tar, weight = ship_device([x, y_tar, weight], device)
+            for item,name in [(x,"x"),(y_tar,"ytar"),(weight,"weight")]:
+                print(f"{name}: {type(item)}")
+                if isinstance(item,list):
+                    for ytem in item:
+                        print(type(ytem))
 
             """
             Forward the data through the model.
@@ -107,7 +111,7 @@ def test(model, loss, dataloader, epoch, device):
     return loss_cmp_ep.mean(), _val_return(loss=loss_cmp_ep, x=x_ep, y_out=y_out_ep, y_tar=None, weight=None, em_tar=None)
 
 
-def ship_device(x, device: Union[str, torch.device]):
+def ship_device(x:Optional[Union[torch.Tensor,tuple,list]], device: Union[str, torch.device]):
     """
     Ships the input to a pytorch compatible device (e.g. CUDA)
 
@@ -130,4 +134,4 @@ def ship_device(x, device: Union[str, torch.device]):
         return x
 
     elif device != 'cpu':
-        raise NotImplementedError(f"Unsupported data type for shipping from host to CUDA device.")
+        raise NotImplementedError(f"Unsupported data type (x={type(x)}, device={device})for shipping from host to CUDA device.")

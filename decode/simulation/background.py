@@ -7,6 +7,8 @@ import torch
 from decode.simulation import psf_kernel as psf_kernel
 import decode.utils
 
+from typing import Union
+
 class Background(ABC):
     """
     Abstract background class. All children must implement a sample method.
@@ -26,7 +28,7 @@ class Background(ABC):
         """
         super().__init__()
 
-        self.forward_return = forward_return if forward_return is not None else 'tuple'
+        self.forward_return=forward_return or "tuple"
 
         self.sanity_check()
 
@@ -104,7 +106,7 @@ class UniformBackground(Background):
 
     """
 
-    def __init__(self, bg_uniform: (float, tuple) = None, bg_sampler=None, forward_return=None):
+    def __init__(self, bg_uniform: Union[float, tuple] = None, bg_sampler=None, forward_return=None):
         """
         Adds spatially constant background.
 
@@ -132,7 +134,7 @@ class UniformBackground(Background):
     def parse(param):
         return UniformBackground(param.Simulation.bg_uniform)
 
-    def sample(self, size, device=torch.device('cpu')):
+    def sample(self, size:Union[torch.Tensor,list,tuple], device=torch.device('cpu')) -> torch.Tensor:
 
         assert len(size) in (2, 3, 4), "Not implemented size spec."
 
@@ -152,97 +154,17 @@ def _get_delta_sampler(val: float):
 
     return delta_sampler
 
+import skimage
+import numpy
 
-class BgPerEmitterFromBgFrame:
-    """
-    Extract a background value per localisation from a background frame. This is done by mean filtering.
-    """
-
-    def __init__(self, filter_size: int, xextent: tuple, yextent: tuple, img_shape: tuple):
-        """
-
-        Args:
-            filter_size (int): size of the mean filter
-            xextent (tuple): extent in x
-            yextent (tuple): extent in y
-            img_shape (tuple): image shape
-        """
-        super().__init__()
-
-        from decode.neuralfitter.utils import padding_calc as padcalc
-        """Sanity checks"""
-        if filter_size % 2 == 0:
-            raise ValueError("ROI size must be odd.")
-
-        self.filter_size = [filter_size, filter_size]
-        self.img_shape = img_shape
-
-        pad_x = padcalc.pad_same_calc(self.img_shape[0], self.filter_size[0], 1, 1)
-        pad_y = padcalc.pad_same_calc(self.img_shape[1], self.filter_size[1], 1, 1)
-
-        self.padding = torch.nn.ReplicationPad2d((pad_x, pad_x, pad_y, pad_y))  # to get the same output dim
-
-        self.kernel = torch.ones((1, 1, filter_size, filter_size)) / (filter_size * filter_size)
-        self.delta_psf = psf_kernel.DeltaPSF(xextent, yextent, img_shape)
-        self.bin_x = self.delta_psf._bin_x
-        self.bin_y = self.delta_psf._bin_y
-
-    def _mean_filter(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Actual magic
-
-        Args:
-            x: torch.Tensor of size N x C=1 x H x W
-
-        Returns:
-            (torch.Tensor) mean filter on frames
-        """
-
-        # put the kernel to the right device
-        if x.size()[-2:] != torch.Size(self.img_shape):
-            raise ValueError("Background does not match specified image size.")
-
-        if self.filter_size[0] <= 1:
-            return x
-
-        self.kernel = self.kernel.to(x.device)
-        x_mean = torch.nn.functional.conv2d(self.padding(x), self.kernel, stride=1, padding=0)  # since already padded
-        return x_mean
-
-    def forward(self, tar_em, tar_bg):
-
-        if tar_bg.dim() == 3:
-            tar_bg = tar_bg.unsqueeze(1)
-
-        if len(tar_em) == 0:
-            return tar_em
-
-        local_mean = self._mean_filter(tar_bg)
-
-        """Extract background values at the position where the emitter is and write it"""
-        pos_x = tar_em.xyz[:, 0]
-        pos_y = tar_em.xyz[:, 1]
-        bg_frame_ix = (-int(tar_em.frame_ix.min()) + tar_em.frame_ix).long()
-
-        ix_x = torch.from_numpy(np.digitize(pos_x.numpy(), self.bin_x, right=False) - 1)
-        ix_y = torch.from_numpy(np.digitize(pos_y.numpy(), self.bin_y, right=False) - 1)
-
-        """Kill everything that is outside"""
-        in_frame = torch.ones_like(ix_x).bool()
-        in_frame *= (ix_x >= 0) * (ix_x <= self.img_shape[0] - 1) * (ix_y >= 0) * (ix_y <= self.img_shape[1] - 1)
-
-        tar_em.bg[in_frame] = local_mean[bg_frame_ix[in_frame], 0, ix_x[in_frame], ix_y[in_frame]]
-
-        return tar_em
-
-class MaskedBackground(Background):
+class MaskedBackground:
     """
         combines two uniform backgrounds:
         - one uniform (flowcell) background across the whole image
         - one additional 'uniform' (cell) background, with different parameters, that is sampled in the areas of the image where a cell is visible
     """
 
-    def __init__(self, flowcell_background, cell_background, forward_return=None):
+    def __init__(self, flowcell_background, cell_background):
         """
         setup different background samplers for flowcell background, and cell background, which are combined during sampling
         """
@@ -250,29 +172,30 @@ class MaskedBackground(Background):
         if flowcell_background is None or cell_background is None:
             raise ValueError("flowcell and cell background need to be specified (seperately)!")
 
-        # TODO did not check how this should be taken into account for this new class.. (what it does exactly)
-        super().__init__(forward_return=forward_return)
-
-        self.flowcell_background=UniformBackground(bg_uniform=flowcell_background)
-        self.cell_background=UniformBackground(bg_uniform=cell_background)
-
-        self.cell_mask=decode.utils.frames_io.load_tif("flowcell_40px_mask.tif").cpu()[:,:,0]
-        self.cell_mask/=self.cell_mask.max()
-        self.cell_mask=1-self.cell_mask
+        # we dont use forward return for anything since we dont forward anything through the background, but the function throws if forward_return is None/unset
+        self.flowcell_background=UniformBackground(bg_uniform=flowcell_background,forward_return="like")
+        self.cell_background=UniformBackground(bg_uniform=cell_background,forward_return="like")
 
     @staticmethod
     def parse(param):
         return MaskedBackground(param.Simulation.bg_flowcell, param.Simulation.bg_cell)
 
-    def sample(self, size, device=torch.device('cpu')):
-        bg=self.flowcell_background.sample(size,device)
+    def sample(self, *, mask:torch.Tensor, device:Union[torch.device,str]=torch.device('cpu')):
+        if isinstance(device,str):
+            device=torch.device(device)
 
-        cell_background=self.cell_background.sample(size,device)
+        flowcell_background = self.flowcell_background.sample(mask.shape,device)
+        cell_background     = self.cell_background.sample(mask.shape,device)
 
-        # mask uniformly sampled cell background, and do that in a loop because i dont yet know how broadcasting works in torch
-        for i in torch.arange(0,cell_background.shape[0]):
-            cell_background[i,:,:]*=self.cell_mask
+        mask_float32=skimage.img_as_float32(mask.numpy())
+        assert (mask_float32.max()-1.0)<1e-6
 
-        bg+=cell_background
+        cell_background*=mask_float32
 
-        return bg
+        # print(f"{cell_background.dtype} {cell_background.min():4.2f} {cell_background.max():4.2f}")
+        # print(f"{flowcell_background.dtype} {flowcell_background.min():4.2f} {flowcell_background.max():4.2f}")
+
+        # mask uniformly sampled cell background
+        background=flowcell_background + cell_background
+
+        return background

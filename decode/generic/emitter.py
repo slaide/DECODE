@@ -860,7 +860,6 @@ class CoordinateOnlyEmitter(EmitterSet):
 
     def __init__(self, xyz: torch.Tensor, xy_unit: str = None, px_size=None):
         """
-
         :param xyz: (torch.tensor) N x 2, N x 3
         """
         super().__init__(xyz, torch.ones_like(xyz[:, 0]), torch.zeros_like(xyz[:, 0]).int(),
@@ -985,6 +984,7 @@ class LooseEmitterSet:
         """First frame"""
         # first
         xyz_ = torch.cat((xyz_, self.xyz), 0)
+        # (from patrick:) i belive they integrate over the frame-time here. from __init__: intensity is photon flux per time unit => intensity*<some time unit> = photon count
         phot_ = torch.cat((phot_, self.intensity * ontime_first), 0)
         id_ = torch.cat((id_, self.id), 0)
         frame_ix_ = torch.cat((frame_ix_, frame_start), 0)

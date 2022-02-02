@@ -8,6 +8,7 @@ from torch.distributions.exponential import Exponential
 import decode.generic.emitter
 from . import structure_prior
 
+from typing import Tuple
 
 class EmitterSampler(ABC):
     """
@@ -106,7 +107,6 @@ class EmitterSamplerFrameIndependent(EmitterSampler):
                                                  id=torch.arange(n).long(),
                                                  xy_unit=self.xy_unit,
                                                  px_size=self.px_size)
-
 
 class EmitterSamplerBlinking(EmitterSamplerFrameIndependent):
     def __init__(self, *, structure: structure_prior.StructurePrior, intensity_mu_sig: tuple, lifetime: float,
@@ -221,10 +221,82 @@ class EmitterSamplerBlinking(EmitterSamplerFrameIndependent):
                    em_avg=param.Simulation.emitter_av,
                    intensity_th=param.Simulation.intensity_th)
 
-class StaticEmitterSampler(EmitterSamplerFrameIndependent):
+from decode.generic.emitter import EmitterSet
+
+import matplotlib.pyplot as plt
+
+import numpy
+
+class MaskedEmitterSampler:
     """
-    emitter that does not blink (as per experimental design)
-    , though design may include emitter movement (depending on the relevance of emitter tracking in the future)
+    static emitters, frame dependent
     """
-    def __init__(self,):
+    def __init__(self, *, structure: structure_prior.CellMaskStructure, intensity_mu_sig: Tuple[float,float],
+                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8):
+        """
+
+        Args:
+            structure:
+            intensity_mu_sig:
+            xy_unit:
+            px_size:
+            num_frames:
+            intensity_th:
+
+        """
+
+        self.structure=structure
+
+        self.num_frames = num_frames
+        self.intensity_mu_sig = intensity_mu_sig
+        self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
+                                                                self.intensity_mu_sig[1])
+        self.intensity_th = intensity_th
+
+        if not xy_unit in ("px","nm"):
+            raise ValueError()
+
+        self.xy_unit=xy_unit
+        self.px_size=px_size
+
+        self.em_avg=None
+
+    def __call__(self) -> decode.generic.emitter.EmitterSet:
         raise NotImplementedError
+        #return self.sample()
+
+    def sample(self, mask:numpy.ndarray) -> decode.generic.emitter.EmitterSet:
+        """
+        Return sampled EmitterSet in the specified frame range.
+
+        Returns:
+            EmitterSet
+
+        """
+
+        # xyz coordinates of emitters
+        emitter_positions=self.structure.sample(mask=mask)
+
+        num_emitters=emitter_positions.shape[0]
+
+        self.em_avg=num_emitters # required by neuralfitter.train.live_engine_setup
+
+        # intensity == photon flux
+        intensity = torch.clamp(self.intensity_dist.sample((num_emitters,)), min=self.intensity_th)
+        # (max?) photon count per emitter
+        phot_=intensity # type: torch.Tensor # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?)
+        # frame index of emitters
+        frame_ix_=torch.zeros((num_emitters,)) # type: torch.Tensor # all for the same frame
+        # id of emitters
+        id_=torch.arange(num_emitters) # type: torch.Tensor # just give every emitter a unique id. does not matter for us since emitters exist for one frame only (at least for now where all frames are completely independent)
+
+        return EmitterSet(emitter_positions, phot_, frame_ix_.long(), id_.long(), xy_unit=self.xy_unit, px_size=self.px_size) # px_size is not well documented. _should_ be nanometer per side?
+
+    @classmethod
+    def parse(cls, param, structure, num_frames: int):
+        return cls(structure=structure,
+                   intensity_mu_sig=param.Simulation.intensity_mu_sig,
+                   xy_unit="px",
+                   px_size=param.Camera.px_size,
+                   num_frames=num_frames,
+                   intensity_th=param.Simulation.intensity_th or 1e-8)

@@ -12,33 +12,36 @@ def setup_masked_simulation(param):
         3. Setup simulation and datasets
         """
 
-    psf = decode.utils.calibration_io.SMAPSplineCoefficient(
-        calib_file=param.InOut.calibration_file).init_spline(
-        xextent=param.Simulation.psf_extent[0],
-        yextent=param.Simulation.psf_extent[1],
-        img_shape=param.Simulation.img_size,
-        device=param.Hardware.device_simulation,
-        roi_size=param.Simulation.roi_size,
-        roi_auto_center=param.Simulation.roi_auto_center
-    )
+    """ frame ranges """
 
-    """Structure Prior"""
-    prior_struct = decode.simulation.structure_prior.CellMaskStructure.parse(param) # TODO modify this to allow for custom structures to sample emitter positions
-
-    if param.Simulation.mode in ('acquisition', 'apriori'): # TODO look into this frame range specification more (since we probably only want to simulate/predict a single frame)
-        frame_range_train = (0, param.HyperParameter.pseudo_ds_size)
-
+    if param.Simulation.mode in ("acquisition", "apriori"):
+        frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
     elif param.Simulation.mode == 'samples':
-        frame_range_train = (-((param.HyperParameter.channels_in - 1) // 2),
-                             (param.HyperParameter.channels_in - 1) // 2)
+        frame_range_train = (0,0)
     else:
         raise ValueError
+        
+    frame_range_test = (0, param.TestSet.test_size)
 
-    prior_train = decode.simulation.emitter_generator.StaticEmitterSampler.parse( # TODO implement a non-blinking emitter (since we do not have blinking emitters in our experiments)
-        param, structure=prior_struct, frames=frame_range_train)
+    """ Structure Prior """
 
-    """Define our background and noise model."""
-    bg = decode.simulation.background.MaskedBackground.parse(param) # TODO implement a background simulation that samples two different background noise models, based on a cell segmentation mask
+    prior_struct = decode.simulation.structure_prior.CellMaskStructure.parse(param)
+
+    """ emitter generators from structure prior"""
+
+    prior_test = decode.simulation.emitter_generator.MaskedEmitterSampler.parse(
+        param, 
+        structure=prior_struct, 
+        num_frames=frame_range_test[1])
+
+    prior_train = decode.simulation.emitter_generator.MaskedEmitterSampler.parse(
+        param, 
+        structure=prior_struct, 
+        num_frames=frame_range_train[1])
+
+    """ background and noise model """
+
+    bg = decode.simulation.background.MaskedBackground.parse(param)
 
     if param.CameraPreset == 'Perfect':
         noise = decode.simulation.camera.PerfectCamera.parse(param)
@@ -47,15 +50,41 @@ def setup_masked_simulation(param):
     else:
         noise = decode.simulation.camera.Photon2Camera.parse(param)
 
-    simulation_train = decode.simulation.simulator.Simulation(psf=psf, em_sampler=prior_train, background=bg,
-                                                              noise=noise, frame_range=frame_range_train)
+    """ setup psf from PSF calibration file """
 
-    frame_range_test = (0, param.TestSet.test_size)
+    psf = decode.utils.calibration_io.SMAPSplineCoefficient(
+        calib_file=param.InOut.calibration_file
+    ).init_spline(
+        xextent=param.Simulation.psf_extent[0],
+        yextent=param.Simulation.psf_extent[1],
+        img_shape=(param.Simulation.psf_extent[0][1],param.Simulation.psf_extent[1][1]),# only for image generation! (network is/will be trained on a different image size)
+        device=param.Hardware.device_simulation,
+        roi_size=param.Simulation.roi_size,
+        roi_auto_center=param.Simulation.roi_auto_center
+    )
 
-    prior_test = decode.simulation.emitter_generator.StaticEmitterSampler.parse( # TODO change this to use the same emitter sampler used above (for training data generation)
-        param, structure=prior_struct, frames=frame_range_test)
+    """ setup simulation for training"""
 
-    simulation_test = decode.simulation.simulator.Simulation(psf=psf, em_sampler=prior_test, background=bg, noise=noise,
-                                                             frame_range=frame_range_test)
+    simulation_train = decode.simulation.simulator.MaskedSimulation(
+        root_experiments_folder=param.InOut.root_experiments_folder, 
+        psf=psf, 
+        em_sampler=prior_train, 
+        background=bg, 
+        noise=noise, 
+        num_frames=frame_range_train[1],
+        frame_size=param.Simulation.img_size,
+        also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
+
+    """ setup simulation for testing """
+
+    simulation_test = decode.simulation.simulator.MaskedSimulation(
+        root_experiments_folder=param.InOut.root_experiments_folder, 
+        psf=psf, 
+        em_sampler=prior_test, 
+        background=bg, 
+        noise=noise,
+        num_frames=frame_range_test[1],
+        frame_size=param.Simulation.img_size,
+        also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
 
     return simulation_train, simulation_test

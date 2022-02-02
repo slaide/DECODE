@@ -8,6 +8,17 @@ import decode.utils
 import matplotlib.pyplot as pyplt
 from torch.nn.functional import normalize
 
+import skimage
+import skimage.io
+
+def read_img(path):
+    img_data=skimage.io.imread(str(path), as_gray = True)
+    img_data=skimage.img_as_ubyte(img_data)
+    return img_data
+def write_img(path,img_data):
+    img_data=skimage.img_as_ubyte(img_data)
+    skimage.io.imsave(str(path), img_data, plugin='tifffile', compress = 6, check_contrast=False)
+
 class StructurePrior(ABC):
     """
     Abstract structure which can be sampled from. All implementation / childs must define a 'pop' method and an area
@@ -86,17 +97,23 @@ class RandomStructure(StructurePrior):
                    yextent=param.Simulation.emitter_extent[1],
                    zextent=param.Simulation.emitter_extent[2])
 
-class CellMaskStructure(StructurePrior):
+import torch
+import numpy
+
+import matplotlib.pyplot as plt
+
+from skimage.measure import label, regionprops, regionprops_table
+import skimage.morphology
+
+class CellMaskStructure:
     """
     sample emitters based on pixel values in a (cell) segmentation mask
     , where px(i,j)=1 represents a cell at that pixel
     """
-    def __init__(self, xextent: Tuple[float, float], yextent: Tuple[float, float], zextent: Tuple[float, float]):
+    def __init__(self, zextent: Tuple[float, float]):
         """
         Args:
-            xextent: extent in x
-            yextent: extent in y
-            zextent: extent in z, set (0., 0.) for a 2D structure
+            zextent: extent in z (lower_limit,upper_limit)
 
         Example:
             The following initialises this class in a range of 32 x 32 px in x and y and +/- 750nm in z.
@@ -106,51 +123,74 @@ class CellMaskStructure(StructurePrior):
 
         super().__init__()
 
-        self.xextent = xextent
-        self.yextent = yextent
         self.zextent = zextent
 
-        self.scale = torch.tensor([(self.xextent[1] - self.xextent[0]),
-                                   (self.yextent[1] - self.yextent[0]),
-                                   (self.zextent[1] - self.zextent[0])])
+    def sample(self, *, mask: numpy.ndarray, per_cell:bool=False) -> torch.Tensor:
+        """
+        Returns:
+            tensor: list of emitter positions
+        
+        Arguments:
+            per_cell : return emitters in a list that contains a list of emitters for each cell (if set to True), else the function returns a list of emitters in the frame (does not differentiate between cells)
+            
+        """
+        
+        label_mask=mask.copy()
+        label_mask[mask>0]=255
+        label_mask=label(label_mask)
+        regions=regionprops(label_mask,cache=True)
 
-        self.shift = torch.tensor([self.xextent[0],
-                                   self.yextent[0],
-                                   self.zextent[0]])
+        #pixel_area=(65e-3)**2
+        #max_area=3.5/pixel_area
+        cell_areas=torch.tensor([cell.area for cell in regions])
 
-        # use exemplary cell mask for now # TODO implement different solution for cell masks
-        self.cell_mask=decode.utils.frames_io.load_tif("flowcell_40px_mask.tif").cpu()[:,:,0] # for some reason, this image has 3 color channels with the same value instead of being greyscale, therefore remove all but one channel
-        # clamp the values to 1
-        self.cell_mask/=self.cell_mask.max()
-        # then invert the values because the (current, exemplary) cell segmentation mask is inverted.. because someone did not pay attention
-        self.cell_mask=1-self.cell_mask
+        probs=torch.tensor([0.0,1.8,1.7,0.0,0.1]) # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
+        num_emitters=torch.multinomial(probs,num_samples=cell_areas.shape[0],replacement=True)
+        #print(num_emitters)
 
-        # get indexable array (matrix) of positions in cell mask with non-zero entries
-        self.cell_mask_nonzero_vector=self.cell_mask.nonzero(as_tuple=False)
-        # get tuple of positions in cell mask with non-zero entries, which can be used to index an array
-        self.cell_mask_nonzero_tuple=self.cell_mask.nonzero(as_tuple=True)
-        # precompute the list of non-zero cell mask values (currently, they are all 1)
-        self.cell_mask_weights=self.cell_mask[self.cell_mask_nonzero_tuple]
+        mask=skimage.img_as_float(mask)
+        torch_mask=torch.from_numpy(mask)
 
-    @property
-    def area(self) -> float:
-        return (self.xextent[1] - self.xextent[0]) * (self.yextent[1] - self.yextent[0])
+        total_emitter_coordinates=torch.tensor([])
 
-    def sample(self, n: int) -> torch.Tensor:
-        #randomly sample n points in 3d, in image volumne
-        xyz = torch.rand((n, 3)) * self.scale + self.shift
+        #plt.figure(figsize=(15,16))
+        #plt.imshow(mask)
+        for region_id,region in enumerate(regions):
+            minr, minc, maxr, maxc = region.bbox
+            #bx = (minc, maxc, maxc, minc, minc)
+            #by = (minr, minr, maxr, maxr, minr)
+            #plt.plot(bx,by)
 
-        # sample n pixel indices with non-zero value
-        cell_mask_random_indices=self.cell_mask_nonzero_vector[torch.multinomial(self.cell_mask_weights,num_samples=n,replacement=True)] # TODO replacement is required here right now, because we sample for multiple images at the same time and therefore cannot respect the density per image
-        # pyplt.scatter(cell_mask_random_indices[:,0],cell_mask_random_indices[:,1])
+            mask_snippet=torch_mask[minr:maxr,minc:maxc]
 
-        # set xy position of randomly sampled fluorophore positions to pixels with known 1 value #TODO this centers the position on the pixels, therefore does not sample 'between' pixels!!!!!!
-        xyz[:,0:2]=cell_mask_random_indices
+            cell_mask_nonzero_vector=mask_snippet.nonzero(as_tuple=False)
 
-        return xyz
+            cell_mask_nonzero_tuple=(cell_mask_nonzero_vector[:,0],cell_mask_nonzero_vector[:,1])
+
+            cell_mask_weights=mask_snippet[cell_mask_nonzero_tuple]
+
+            num_emitters_in_this_cell=num_emitters[region_id]
+
+            emitter_coordinates=torch.zeros((num_emitters_in_this_cell,3))
+            # TODO sample emitter positions outside pixel center (maybe add uniformly distributed offset within pixel area? should be good enough)
+            emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
+
+            # TODO uniform depth distribution is not realistic
+            emitter_coordinates[:,2]=torch.distributions.uniform.Uniform(*self.zextent).sample((num_emitters_in_this_cell,))
+
+            emitter_coordinates[:,1]+=minc
+            emitter_coordinates[:,0]+=minr
+
+            if per_cell:
+                total_emitter_coordinates=torch.cat((total_emitter_coordinates,[emitter_coordinates]),0)
+            else:
+                total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
+
+        #plt.scatter(total_emitter_coordinates[:,1],total_emitter_coordinates[:,0],marker="o",s=50,c="red")
+        #plt.show()
+        
+        return total_emitter_coordinates
 
     @classmethod
     def parse(cls, param):
-        return cls(xextent=param.Simulation.emitter_extent[0],
-                   yextent=param.Simulation.emitter_extent[1],
-                   zextent=param.Simulation.emitter_extent[2])
+        return cls(zextent=param.Simulation.emitter_extent[2])

@@ -49,7 +49,7 @@ class SMLMDataset(Dataset):
         self.sanity_check()
 
     def __len__(self):
-        if self.pad is None:  # loosing samples at the border
+        if self.pad is None:  # losing samples at the border
             return self._frames.size(0) - self.frame_window + 1
 
         elif self.pad == 'same':

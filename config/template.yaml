@@ -12,6 +12,8 @@
 #     in a jupyter notebook, you will then see a button/dropdown where you can change the kernel of the running notebook instance, which you need to change to the name of the environment you specified in the line above
 #   done
 #   requires torchvision package for pranet, which can be installed with $ conda install --name decode_env_fork torchvision # which installs the cpu version, but that is fine for now
+#   required to align phase contrast images with fluorescence images $ conda install -c conda-forge --name decode_env_fork opencv-python
+#   required to make cells cell-shaped in 3d (measures shortest distance of a point in 1/2/3d to the nearest border to another color-labelled region): $ conda install -c conda-forge --name decode_env_fork edt # github: https://github.com/seung-lab/euclidean-distance-transform-3d/
 
 # decode/utils/reference_files/reference.yaml contains very similar information (but without the added comments)
 CameraPreset:
@@ -90,7 +92,8 @@ HyperParameter:
     weight_decay: 0.1
   optimizer: AdamW
   photon_threshold:
-  pseudo_ds_size: 10000 # what is this? i think this is the number of images sampled/simulated at the same time? unsure how this relates to training exactly
+  pseudo_ds_size: 10000 # number of images sampled for training
+  root_experiments_folder: experiments
 InOut:
   calibration_file: data/calibration/flowcell_p65nm_z25nm_3dcal.mat  # cubic spline coefficients
   checkpoint_init:   # initialise from checkpoint (i.e. resume training)
@@ -137,7 +140,7 @@ Simulation:
   xy_unit: px
 TestSet:
   mode:  simulated  # static / simulated
-  test_size: 512
+  test_size: 512 # sample this many frames 
   frame_extent: # x/y should not be changed (apparently)
   - - -0.5
     - 39.5

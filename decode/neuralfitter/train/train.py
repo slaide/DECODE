@@ -16,9 +16,11 @@ import decode.neuralfitter.utils
 import decode.simulation
 import decode.utils
 from decode.neuralfitter.train.random_simulation import setup_random_simulation
+from decode.neuralfitter.train.masked_simulation import setup_masked_simulation
 from decode.neuralfitter.utils import log_train_val_progress
 from decode.utils.checkpoint import CheckPoint
 
+from typing import Union
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Training Args')
@@ -47,14 +49,17 @@ def parse_args():
     parser.add_argument('-c', '--log_comment', default=None,
                         help='Add a log_comment to the run.')
 
+    parser.add_argument('-s', '--simulation_name', default="random",
+                        help='either "masked" or "random"')
+
     args = parser.parse_args()
     return args
 
 
-def live_engine_setup(param_file: str, device_overwrite: str = None, debug: bool = False,
+def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None, debug: bool = False,
                       no_log: bool = False,
                       num_worker_override: int = None,
-                      log_folder: str = 'runs', log_comment: str = None):
+                      log_folder: str = 'runs', log_comment: str = None, *, simulation_name:str="random"):
     """
     Sets up the engine to train DECODE. Includes sample simulation and the actual training.
 
@@ -168,7 +173,16 @@ def live_engine_setup(param_file: str, device_overwrite: str = None, debug: bool
                                                                          "dphot_red_sig"]),
              decode.neuralfitter.utils.logger.DictLogger()])
 
-    sim_train, sim_test = setup_random_simulation(param) # TODO replace random simulation with more structured simulation of flowcell layout
+
+    print(f"using {simulation_name} simulation")
+    if simulation_name=="random":
+        print(f"using {simulation_name} simulation")
+        sim_train, sim_test = setup_random_simulation(param)
+    elif simulation_name=="masked":
+        sim_train, sim_test = setup_masked_simulation(param)
+    else:
+        raise ValueError
+
     ds_train, ds_test, model, model_ls, optimizer, criterion, lr_scheduler, grad_mod, post_processor, matcher, ckpt = \
         setup_trainer(sim_train, sim_test, logger, model_out, ckpt_path, device, param)
     dl_train, dl_test = setup_dataloader(param, ds_train, ds_test)
@@ -402,16 +416,33 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
             return_em=False,
             ds_len=param.HyperParameter.pseudo_ds_size)
 
+    elif param.Simulation.mode=="apriori":
+        train_ds = decode.neuralfitter.dataset.SMLMAPrioriDataset(
+            simulator=simulator_train,
+            em_proc=em_filter,
+            frame_proc=frame_proc,
+            bg_frame_proc=bg_frame_proc,
+            tar_gen=tar_gen,
+            weight_gen=None,
+            frame_window=param.HyperParameter.channels_in,
+            pad="same", 
+            return_em=False)
+
+        train_ds.sample(verbose=True)
+
+
     test_ds = decode.neuralfitter.dataset.SMLMAPrioriDataset(
         simulator=simulator_test,
         em_proc=em_filter,
         frame_proc=frame_proc,
         bg_frame_proc=bg_frame_proc,
-        tar_gen=tar_gen_test, weight_gen=None,
+        tar_gen=tar_gen,
+        weight_gen=None,
         frame_window=param.HyperParameter.channels_in,
-        pad=None, return_em=False)
+        pad="same", 
+        return_em=False)
 
-    test_ds.sample(True)
+    test_ds.sample(verbose=True)
 
     """Set up post processor"""
     if param.PostProcessing is None:
@@ -493,7 +524,7 @@ def main():
     args = parse_args()
     live_engine_setup(args.param_file, args.device, args.debug, args.no_log,
                       args.num_worker_override, args.log_folder,
-                      args.log_comment)
+                      args.log_comment,simulation_name=args.simulation_name)
 
 
 if __name__ == '__main__':
