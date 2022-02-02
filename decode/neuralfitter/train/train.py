@@ -176,7 +176,6 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
 
     print(f"using {simulation_name} simulation")
     if simulation_name=="random":
-        print(f"using {simulation_name} simulation")
         sim_train, sim_test = setup_random_simulation(param)
     elif simulation_name=="masked":
         sim_train, sim_test = setup_masked_simulation(param)
@@ -199,7 +198,7 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
         first_epoch = 0
 
     converges = False
-    n = 0 # number of times training has been restarted (due to ?)
+    n = 0
     n_max = param.HyperParameter.auto_restart_param.num_restarts
 
     while not converges and n < n_max:
@@ -214,7 +213,6 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
         for i in range(first_epoch, param.HyperParameter.epochs):
             logger.add_scalar('learning/learning_rate', optimizer.param_groups[0]['lr'], i)
 
-            # no idea what this does
             if i >= 1:
                 _ = decode.neuralfitter.train_val_impl.train(
                     model=model,
@@ -300,7 +298,7 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
         'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
     }
 
-    model = models_available[param.HyperParameter.architecture] # throws if name is unrecognized
+    model = models_available[param.HyperParameter.architecture]
     model = model.parse(param)
 
     model_ls = decode.utils.model_io.LoadSaveModel(model,
@@ -315,7 +313,7 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
         'AdamW': torch.optim.AdamW
     }
 
-    optimizer = optimizer_available[param.HyperParameter.optimizer] # throws if name is unrecognized
+    optimizer = optimizer_available[param.HyperParameter.optimizer]
     optimizer = optimizer(model.parameters(), **param.HyperParameter.opt_param)
 
     """Loss function."""
@@ -416,30 +414,15 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
             return_em=False,
             ds_len=param.HyperParameter.pseudo_ds_size)
 
-    elif param.Simulation.mode=="apriori":
-        train_ds = decode.neuralfitter.dataset.SMLMAPrioriDataset(
-            simulator=simulator_train,
-            em_proc=em_filter,
-            frame_proc=frame_proc,
-            bg_frame_proc=bg_frame_proc,
-            tar_gen=tar_gen,
-            weight_gen=None,
-            frame_window=param.HyperParameter.channels_in,
-            pad="same", 
-            return_em=False)
-
-        train_ds.sample(verbose=True)
-
-
     test_ds = decode.neuralfitter.dataset.SMLMAPrioriDataset(
         simulator=simulator_test,
         em_proc=em_filter,
         frame_proc=frame_proc,
         bg_frame_proc=bg_frame_proc,
-        tar_gen=tar_gen,
+        tar_gen=tar_gen_test,
         weight_gen=None,
         frame_window=param.HyperParameter.channels_in,
-        pad="same", 
+        pad=None,
         return_em=False)
 
     test_ds.sample(verbose=True)
@@ -520,12 +503,8 @@ def setup_dataloader(param, train_ds, test_ds=None):
     return train_dl, test_dl
 
 
-def main():
+if __name__ == '__main__':
     args = parse_args()
     live_engine_setup(args.param_file, args.device, args.debug, args.no_log,
                       args.num_worker_override, args.log_folder,
                       args.log_comment,simulation_name=args.simulation_name)
-
-
-if __name__ == '__main__':
-    main()

@@ -251,7 +251,7 @@ class MaskedSimulation:
 
         while True:
             snippets_remaining=self.num_frames-snippets_returned
-            if self.snippet_buffer:
+            if False and not self.snippet_buffer is None:
                 raise NotImplementedError("return snippets from buffer/last frame")
 
             sample_start=perf_counter()

@@ -16,8 +16,6 @@ def setup_masked_simulation(param):
 
     if param.Simulation.mode in ("acquisition", "apriori"):
         frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
-    elif param.Simulation.mode == 'samples':
-        frame_range_train = (0,0)
     else:
         raise ValueError
         

@@ -81,16 +81,19 @@ def test(model, loss, dataloader, epoch, device):
 
             """Ship the data to the correct device"""
             x, y_tar, weight = ship_device([x, y_tar, weight], device)
-            for item,name in [(x,"x"),(y_tar,"ytar"),(weight,"weight")]:
-                print(f"{name}: {type(item)}")
-                if isinstance(item,list):
-                    for ytem in item:
-                        print(type(ytem))
 
             """
             Forward the data through the model.
             """
             y_out = model(x)
+
+            if False:
+                print("---------------------")
+                print(f"{type(y_out),type(y_tar),type(weight)}")
+                print(f"{y_out.shape,y_out.dtype,len(y_tar)}")
+                print(f"{type(y_tar[0]),type(y_tar[1]),type(y_tar[2])}")
+                for i in range(0,3):
+                    print(f"{y_tar[i].dtype,y_tar[i].shape}")
 
             loss_val = loss(y_out, y_tar, weight)
 
