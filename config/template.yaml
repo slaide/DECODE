@@ -8,7 +8,7 @@
 #   and instead insert a softlink/shortcut to the forked DECODE folder in its place: $ ln -s DECODE_fork/decode anaconda3/envs/decode_env_fork/lib/python3.8/site-packages/decode
 #   to enable this environment in a jupyter notebook
 #     run this anywhere: $ conda install -c anaconda ipykernel
-#     then run this anywhere: $ python -m ipykernel install --user --name=decode_env # or replace decode_env with the name of the environment that contains the link to the modified DECODE package
+#     then run this from within the anaconda environment that you want to use in jupyter: $ python -m ipykernel install --user --name=decode_env
 #     in a jupyter notebook, you will then see a button/dropdown where you can change the kernel of the running notebook instance, which you need to change to the name of the environment you specified in the line above
 #   done
 #   requires torchvision package for pranet, which can be installed with $ conda install --name decode_env_fork torchvision # which installs the cpu version, but that is fine for now
