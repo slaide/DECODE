@@ -228,6 +228,8 @@ import matplotlib.pyplot as plt
 import numpy
 
 class MaskedEmitterSampler:
+    emitters_sampled=0
+
     """
     static emitters, frame dependent
     """
@@ -265,7 +267,7 @@ class MaskedEmitterSampler:
         raise NotImplementedError
         #return self.sample()
 
-    def sample(self, mask:numpy.ndarray) -> decode.generic.emitter.EmitterSet:
+    def sample(self, mask:numpy.ndarray, frame_index_override:int=None) -> decode.generic.emitter.EmitterSet:
         """
         Return sampled EmitterSet in the specified frame range.
 
@@ -286,9 +288,15 @@ class MaskedEmitterSampler:
         # (max?) photon count per emitter
         phot_=intensity # type: torch.Tensor # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?)
         # frame index of emitters
-        frame_ix_=torch.zeros((num_emitters,)) # type: torch.Tensor # all for the same frame
+        frame_ix_=torch.zeros((num_emitters,))
         # id of emitters
         id_=torch.arange(num_emitters) # type: torch.Tensor # just give every emitter a unique id. does not matter for us since emitters exist for one frame only (at least for now where all frames are completely independent)
+
+        id_+=MaskedEmitterSampler.emitters_sampled
+        MaskedEmitterSampler.emitters_sampled+=num_emitters
+
+        if not frame_index_override is None:
+            frame_ix_+=frame_index_override
 
         return EmitterSet(emitter_positions, phot_, frame_ix_.long(), id_.long(), xy_unit=self.xy_unit, px_size=self.px_size) # px_size is not well documented. _should_ be nanometer per side?
 

@@ -9,6 +9,7 @@ import torch
 import decode.generic.utils
 from . import slicing as gutil, test_utils as tutil
 
+from typing import Optional,Tuple
 
 class EmitterSet:
     """
@@ -837,6 +838,35 @@ class EmitterSet:
         self.phot_cr = crlb[:, 3]
         self.bg_cr = crlb[:, 4]
 
+    def emitters_in_region(self,ax0:Tuple[float,float],ax1:Tuple[float,float],ax2:Optional[Tuple[float,float]]=None,shift:bool=False,purge:bool=False):
+        xyz_coords=self.xyz_px
+
+        mask =                         xyz_coords[:,0] >= ax0[0]
+        mask = torch.logical_and(mask, xyz_coords[:,0] <  ax0[1])
+        
+        mask = torch.logical_and(mask, xyz_coords[:,1] >= ax1[0])
+        mask = torch.logical_and(mask, xyz_coords[:,1] <  ax1[1])
+        
+        if not ax2 is None:
+            mask = torch.logical_and(mask, xyz_coords[:,2] >= ax2[0])
+            mask = torch.logical_and(mask, xyz_coords[:,2] <  ax2[1])
+
+        ret_set=self[mask]
+
+        if purge and False:
+            self=self[~mask]
+
+        if shift:
+            set_xyz_px=ret_set.xyz_px.clone().detach()
+            set_xyz_px[:,0]-=ax0[0]
+            set_xyz_px[:,1]-=ax1[0]
+
+            if not ax2 is None:
+                set_xyz_px[:,2]-=ax2[0]
+
+            ret_set.xyz_px=set_xyz_px
+
+        return ret_set
 
 class RandomEmitterSet(EmitterSet):
     """

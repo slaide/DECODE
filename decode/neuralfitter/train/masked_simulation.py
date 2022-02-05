@@ -14,6 +14,10 @@ def setup_masked_simulation(param):
 
     """ frame ranges """
 
+    if not param.Simulation.full_frame_psf:
+        param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
+        param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
+
     if param.Simulation.mode in ("acquisition", "apriori"):
         frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
     else:
@@ -41,9 +45,7 @@ def setup_masked_simulation(param):
 
     bg = decode.simulation.background.MaskedBackground.parse(param)
 
-    if param.CameraPreset == 'Perfect':
-        noise = decode.simulation.camera.PerfectCamera.parse(param)
-    elif param.CameraPreset is not None:
+    if param.CameraPreset is not None:
         raise NotImplementedError
     else:
         noise = decode.simulation.camera.Photon2Camera.parse(param)
@@ -55,7 +57,7 @@ def setup_masked_simulation(param):
     ).init_spline(
         xextent=param.Simulation.psf_extent[0],
         yextent=param.Simulation.psf_extent[1],
-        img_shape=(param.Simulation.psf_extent[0][1],param.Simulation.psf_extent[1][1]),# only for image generation! (network is/will be trained on a different image size)
+        img_shape=(param.Simulation.psf_extent[0][1],param.Simulation.psf_extent[1][1]) if param.Simulation.full_frame_psf else param.Simulation.img_size,
         device=param.Hardware.device_simulation,
         roi_size=param.Simulation.roi_size,
         roi_auto_center=param.Simulation.roi_auto_center
@@ -71,6 +73,7 @@ def setup_masked_simulation(param):
         noise=noise, 
         num_frames=frame_range_train[1],
         frame_size=param.Simulation.img_size,
+        full_frame_psf=param.Simulation.full_frame_psf,
         also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
 
     """ setup simulation for testing """
@@ -83,6 +86,7 @@ def setup_masked_simulation(param):
         noise=noise,
         num_frames=frame_range_test[1],
         frame_size=param.Simulation.img_size,
+        full_frame_psf=param.Simulation.full_frame_psf,
         also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
 
     return simulation_train, simulation_test

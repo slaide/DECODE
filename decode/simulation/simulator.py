@@ -54,6 +54,7 @@ class Simulation:
 
         emitter = self.em_sampler()
         frames, bg = self.forward(emitter)
+
         return emitter, frames, bg
 
     def forward(self, em: EmitterSet, ix_low: Union[None, int] = None, ix_high: Union[None, int] = None) -> Tuple[
@@ -177,7 +178,8 @@ def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False):
                 #            yield cell_mask_image_snippet
 
 from time import perf_counter
-
+from decode.generic import EmitterSet
+import matplotlib.pyplot as plt
 class MaskedSimulation:
     """
     A simulation class that holds the necessary modules, i.e. an emitter source (either a static EmitterSet or
@@ -194,7 +196,7 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise=None, also_yield_fluorescence=False):
+    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, also_yield_fluorescence=False):
         """
         Init Simulation.
 
@@ -223,6 +225,8 @@ class MaskedSimulation:
         self.snippet_buffer=None
         self.snippet_buffer_bg=None
 
+        self.full_frame_psf=full_frame_psf
+
     def sample(self):
         """
         Sample a new set of emitters and forward them through the simulation pipeline.
@@ -241,16 +245,16 @@ class MaskedSimulation:
 
         snippets=torch.zeros(2,self.num_frames,self.frame_size[0],self.frame_size[1])
 
-        # used in each iteration seperately, but saves new allocation each time
-        total_snippets=None
-        #total_snippets_bg=None
+        num_frames_sampled=0
+        snippets_generated_total=0
+
+        emitter_set=None # will be returned
 
         sample_counter=0.0
         snippetization_counter=0.0
         snippet_copy_counter=0.0
 
         while True:
-            snippets_remaining=self.num_frames-snippets_returned
             if False and not self.snippet_buffer is None:
                 raise NotImplementedError("return snippets from buffer/last frame")
 
@@ -263,10 +267,28 @@ class MaskedSimulation:
                 self.mask_sampler=sample_cell_masks(self.root_experiments_folder,also_yield_fluorescence=self.also_yield_fluorescence)
                 continue
 
+            num_frames_sampled+=1
+
             # sample emitters per frame
-            emitter = self.em_sampler.sample(mask)
+            single_frame_emitter_set = self.em_sampler.sample(mask)
+
             # forward emitter position through image simulation pipeline
-            frames, frames_bg = self.forward(mask, emitter)
+            if self.full_frame_psf:
+                frames, frames_bg = self.forward(mask, single_frame_emitter_set)
+
+            # emitter-psf folding works!
+            if False:
+                plt.figure(figsize=(15,15))
+                plt.imshow(mask)
+                plt.scatter(single_frame_emitter_set.xyz_px[:,1],single_frame_emitter_set.xyz_px[:,0])
+                plt.show()
+
+                plt.figure(figsize=(15*2,15*2))
+                plt.imshow(frames.cpu()[0])
+                #plt.scatter(single_frame_emitter_set.xyz_px[:,1],single_frame_emitter_set.xyz_px[:,0],s=10,c="yellow")
+                plt.show()
+
+                raise Error()
 
             sample_counter+=perf_counter()-sample_start
 
@@ -275,60 +297,73 @@ class MaskedSimulation:
 
             snippets_per_full_frame=dim_1_snippet_count*dim_0_snippet_count
 
-            # only allocate once, then reuse in later iterations
-            if total_snippets is None:
-                total_snippets=torch.zeros(2,self.frame_size[0],self.frame_size[1],snippets_per_full_frame)
-                total_snippets_bg=torch.zeros(self.frame_size[0],self.frame_size[1],snippets_per_full_frame)
-
             snippetization_start=perf_counter()
 
+            snippets_generated_in_frame=0
+            single_frame_emitter_subsets=None
+
+            #assert frames.shape[1]==mask.shape[0]
+            #assert frames.shape[2]==mask.shape[1]
+
             for i_i,i in enumerate(range(0,mask.shape[0],self.frame_size[0])):
+                if snippets_returned==self.num_frames:
+                    break
+
                 for j_i,j in enumerate(range(0,mask.shape[1],self.frame_size[1])):
+                    if snippets_returned==self.num_frames:
+                        break
+
                     current_total_snippet_index=i_i*dim_1_snippet_count+j_i
 
-                    if i+self.frame_size[0] <= frames.shape[1] and j+self.frame_size[1] <= frames.shape[2]:
-                        total_snippets[:,:,:,current_total_snippet_index]=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
-                        #total_snippets_bg[i*dim_0_snippet_count+j,:,:]=frames_bg[i:i+self.frame_size[0],j:j+self.frame_size[1]]
+                    if i+self.frame_size[0] <= mask.shape[0] and j+self.frame_size[1] <= mask.shape[1]:
+                        padding_fraction=0.3
+                        padding=0#10#self.frame_size[0]*padding_fraction
+                        #single_frame_emitter_subset_no_shift=single_frame_emitter_set.emitters_in_region(ax0=(i-self.frame_size[0]/2,i+self.frame_size[0]*1.5),ax1=(j-self.frame_size[1]/2,j+self.frame_size[1]*1.5)).clone()
+                        single_frame_emitter_subset=single_frame_emitter_set.emitters_in_region(ax0=(i-padding,i+self.frame_size[0]+padding),ax1=(j-padding,j+self.frame_size[1]+padding)).clone()
+                        single_frame_emitter_subset.xyz_px[:,0]-=i
+                        single_frame_emitter_subset.xyz_px[:,1]-=j
+
+                        if len(single_frame_emitter_subset)>0:
+                            # forward emitter position through image simulation pipeline
+                            if self.full_frame_psf:
+                                snippets[:,snippets_returned,:,:]=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
+                            else:
+                                frames, frames_bg = self.forward(mask[i:i+self.frame_size[0],j:j+self.frame_size[1]], single_frame_emitter_subset)
+                                snippets[:,snippets_returned,:,:]=frames
+
+                            single_frame_emitter_subset.frame_ix[:]=snippets_returned
+
+                            if not emitter_set is None:
+                                emitter_set+=single_frame_emitter_subset
+                            else:
+                                emitter_set=single_frame_emitter_subset
+
+                            snippets_returned+=1
+                    
+                        snippets_generated_in_frame+=1
+                        snippets_generated_total+=1
 
             snippetization_counter+=perf_counter()-snippetization_start
 
-            get_next_frame=False
-
-            snippet_copy_start=perf_counter()
-
-            j=0
-            # for each snippe that has yet to be returned:
-            for i in range(snippets_returned,self.num_frames):
-                # check if the current full frame snippet list has some snippets left
-                if j>=snippets_per_full_frame:
-                    get_next_frame=True
-                    break
-
-                # return additional snippet
-                snippets[:,i,:,:]=total_snippets[:,:,:,j]
-                #snippets_bg[:,:,i]=total_snippets_bg[,:,:,j]
-
-                snippets_returned+=1
-                j+=1
-
-            snippet_copy_counter+=perf_counter()-snippet_copy_start
-
-            #print(f"added one full frame with snippets_returned={snippets_returned}")
-
-            if not get_next_frame:
-                # save leftover snippets for later use (only possible of current frame could not fill required snippet list)
-                if j<snippets_per_full_frame:
-                    self.snippet_buffer=total_snippets[:,j:,:,:]
-                    #self.snippet_buffer_bg=total_snippets_bg[:,j:,:,:]
+            if snippets_returned==self.num_frames:
                 break
 
         frames_bg=snippets[1,:,:,:]
         frames=snippets[0,:,:,:]
 
-        print(f"sample fn total: {(perf_counter()-sample_fn_start):5.3f}s [ sample: {sample_counter:5.3f}s, snippetization: {snippetization_counter:5.3f}s, copy: {snippet_copy_counter:5.3f}s ]")
+        assert len(emitter_set)>=self.num_frames,"there is not at least one emitter per frame. this is a bug"
 
-        # TODO very unsure about the expected format of 'frames' and 'frames_bg'
-        return emitter, frames, frames_bg
+        print(f"[perf] sample fn total: {(perf_counter()-sample_fn_start):5.3f}s [ sample: {sample_counter:5.3f}s, snippetization: {snippetization_counter:5.3f}s ]")
+
+        """ save first generated image stack for debugging """
+        tif_path=Path("snippet_stack.tiff")
+        if False and not tif_path.exists():
+            debug_frames=frames.clone().detach()
+            debug_frames/=debug_frames.max()
+            debug_frames=skimage.img_as_ubyte(debug_frames.cpu().numpy())
+            skimage.io.imsave(str(tif_path),debug_frames,plugin='tifffile', compress = 6, check_contrast=False)
+
+        return emitter_set, frames, frames_bg
 
     def forward(self, mask:torch.Tensor, em: EmitterSet) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -343,16 +378,20 @@ class MaskedSimulation:
             torch.Tensor: background frames (e.g. to predict the bg seperately) # this assumes that background bg_return is set to 'tuple'
         """
 
-        #frames = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=0, ix_high=self.num_frames)
-        frames = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=0, ix_high=1)
+        frames = self.psf.forward(em.xyz_px, em.phot, em.frame_ix)
 
         """ Add background. The difference between background and noise is, that background is assumed to be independent of the emitter position / signal. """
         
         bg_frames = self.background.sample(mask=torch.tensor(mask))
 
+        """
+        Add background. This needs to happen here and not on a single frame, since background may be correlated.
+        The difference between background and noise is, that background is assumed to be independent of the 
+        emitter position / signal.
+        """
+
         frames+=bg_frames
 
-        if self.noise:
-            frames = self.noise.forward(frames)
+        frames = self.noise.forward(frames)
 
         return frames, bg_frames

@@ -175,19 +175,20 @@ class CellMaskStructure:
             # TODO sample emitter positions outside pixel center (maybe add uniformly distributed offset within pixel area? should be good enough)
             emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
 
-            # TODO uniform depth distribution is not realistic
-            emitter_coordinates[:,2]=torch.distributions.uniform.Uniform(*self.zextent).sample((num_emitters_in_this_cell,))
+            assert self.zextent[0]<self.zextent[1]
+            
+            zrange=self.zextent[1]-self.zextent[0]
+            #emitters_z=torch.distributions.beta.Beta(5,5).sample((num_emitters_in_this_cell,)) * zrange # * mask[emitter_coordinates]
+            emitters_z=torch.distributions.uniform.Uniform(0,zrange).sample((num_emitters_in_this_cell,)) # * mask[emitter_coordinates]
+            emitter_coordinates[:,2]=emitters_z - self.zextent[1]
 
-            emitter_coordinates[:,1]+=minc
             emitter_coordinates[:,0]+=minr
+            emitter_coordinates[:,1]+=minc
 
             if per_cell:
                 total_emitter_coordinates=torch.cat((total_emitter_coordinates,[emitter_coordinates]),0)
             else:
                 total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
-
-        #plt.scatter(total_emitter_coordinates[:,1],total_emitter_coordinates[:,0],marker="o",s=50,c="red")
-        #plt.show()
         
         return total_emitter_coordinates
 

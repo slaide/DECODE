@@ -188,7 +188,8 @@ class MaskedBackground:
         cell_background     = self.cell_background.sample(mask.shape,device)
 
         mask_float32=skimage.img_as_float32(mask.numpy())
-        assert (mask_float32.max()-1.0)<1e-6
+        #assert (mask_float32.max()-1.0)<1e-6
+        #assert (mask_float32.min())<1e-6
 
         cell_background*=mask_float32
 
