@@ -29,8 +29,20 @@ def train(model, optimizer, loss, dataloader, grad_rescale, grad_mod, epoch, dev
         """Forward the data"""
         y_out = model(x)
 
+        # y_out: torch.Tensor[
+        #                       batch_num,
+        #                       10, (p @ 0, pxyz_mu @ 1..5, pxyz_sig @ 5..9, bg @ 9)
+        #                       param.Simulation.img_size[0],
+        #                       param.Simulation.img_size[1]
+        # ]
+        # y_tar: [
+        #           torch.Tensor[batch_num, max_num_emitters, 4], # param (phot, xyz)
+        #           torch.Tensor[batch_num, max_num_emitters ], # mask
+        #           torch.Tensor[batch_num, param.simulation.img_size[0], param.simulation.img_size[1]], # background
+        # ]
+
         """Reset the optimiser, compute the loss and backprop it"""
-        loss_val = loss(y_out, y_tar, weight)
+        loss_val = loss(y_out, y_tar, weight) # loss is always decode.neuralfitter.loss.GaussianMMLoss
 
         if grad_rescale:  # rescale gradients so that they are in the same order for the last layer
             weight, _, _ = model.rescale_last_layer_grad(loss_val, optimizer)
@@ -86,14 +98,6 @@ def test(model, loss, dataloader, epoch, device):
             Forward the data through the model.
             """
             y_out = model(x)
-
-            if False:
-                print("---------------------")
-                print(f"{type(y_out),type(y_tar),type(weight)}")
-                print(f"{y_out.shape,y_out.dtype,len(y_tar)}")
-                print(f"{type(y_tar[0]),type(y_tar[1]),type(y_tar[2])}")
-                for i in range(0,3):
-                    print(f"{y_tar[i].dtype,y_tar[i].shape}")
 
             loss_val = loss(y_out, y_tar, weight)
 

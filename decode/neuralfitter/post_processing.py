@@ -119,8 +119,8 @@ class LookUpPostProcessing(PostProcessing):
     """
 
     def __init__(self, raw_th: float, xy_unit: str, px_size=None,
-                 pphotxyzbg_mapping: Union[list, tuple] = (0, 1, 2, 3, 4, -1),
-                 photxyz_sigma_mapping: Union[list, tuple, None] = (5, 6, 7, 8)):
+                 pphotxyzbg_mapping: Union[list, tuple] = (0, 1, 2, 3, 4,             9),
+                 photxyz_sigma_mapping: Union[list, tuple, None] =       (5, 6, 7, 8)):
         """
 
         Args:
@@ -198,6 +198,7 @@ class LookUpPostProcessing(PostProcessing):
 
         """Return EmitterSet"""
         xyz = features[1:4].transpose(0, 1)
+        # print(f"pp201 - em xyz: {xyz.shape}")
 
         """If sigma mapping is present, get those values as well."""
         if self.photxyz_sigma_mapping is not None:
@@ -319,6 +320,7 @@ class SpatialIntegration(LookUpPostProcessing):
             return p_aggr
 
 
+# unused. (no param will lead to this post-processing being applied)
 class ConsistencyPostprocessing(PostProcessing):
     """
     PostProcessing implementation that divides the output in hard and easy samples. Easy samples are predictions in

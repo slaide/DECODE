@@ -206,8 +206,8 @@ class GaussianMMLoss(Loss):
         batch_size = pxyz_mu.size(0)
         log_prob = 0
 
-        p_mean = p.sum(-1).sum(-1)
-        p_var = (p - p ** 2).sum(-1).sum(-1)  # var estimate of bernoulli
+        p_mean = p.sum(-1).sum(-1) # mean of sum over whole frame
+        p_var = (p - p ** 2).sum(-1).sum(-1)  # var estimate of bernoulli (of sum over whole frame)
         p_gauss = distributions.Normal(p_mean, torch.sqrt(p_var))
 
         log_prob = log_prob + p_gauss.log_prob(mask.sum(-1)) * mask.sum(-1)
@@ -216,7 +216,7 @@ class GaussianMMLoss(Loss):
 
         """Hacky way to get all prob indices"""
         p_inds = tuple((p + 1).nonzero(as_tuple=False).transpose(1, 0))
-        pxyz_mu = pxyz_mu[p_inds[0], :, p_inds[1], p_inds[2]]
+        pxyz_mu = pxyz_mu[p_inds[0], :, p_inds[1], p_inds[2]] # with p_inds and pxyz_mu there are now two lists containing all relevant information for each pixel (coordinates and data at same index)
 
         """Convert px shifts to absolute coordinates"""
         pxyz_mu[:, 1] += self._offset2coord.bin_ctr_x[p_inds[1]].to(pxyz_mu.device)
@@ -227,13 +227,13 @@ class GaussianMMLoss(Loss):
         pxyz_sig = pxyz_sig[p_inds[0], :, p_inds[1], p_inds[2]].reshape(batch_size, -1, 4)
 
         """Set up mixture family"""
-        mix = distributions.Categorical(prob_normed[p_inds].reshape(batch_size, -1))
-        comp = distributions.Independent(distributions.Normal(pxyz_mu, pxyz_sig), 1)
+        mix = distributions.Categorical(prob_normed[p_inds].reshape(batch_size, -1)) # normalized probabilities. prob to choose a pixel is proportional to its contained p-value (pick any pixel from the output at random, given this distribution)
+        comp = distributions.Independent(distributions.Normal(pxyz_mu, pxyz_sig), 1) # for each pixel, given a normal distribution defined by the network output
         gmm = distributions.mixture_same_family.MixtureSameFamily(mix, comp)
 
         """Calc log probs if there is anything there"""
         if mask.sum():
-            gmm_log = gmm.log_prob(pxyz_tar.transpose(0, 1)).transpose(0, 1)
+            gmm_log = gmm.log_prob(pxyz_tar.transpose(0, 1)).transpose(0, 1) # given the model above, whats the log likelihood that the real emitters were sampled from the model output
             gmm_log = (gmm_log * mask).sum(-1)
             # print(f"LogProb: {log_prob.mean()}, GMM_log: {gmm_log.mean()}")
             log_prob = log_prob + gmm_log
@@ -265,7 +265,7 @@ class GaussianMMLoss(Loss):
             self._forward_checks(output, target, weight)
 
         tar_param, tar_mask, tar_bg = target
-        p, pxyz_mu, pxyz_sig, bg = self._format_model_output(output)
+        p, pxyz_mu, pxyz_sig, bg = self._format_model_output(output) # simply splits dim2(of len 10) into tuple (with len 1,4,4,1)
 
         bg_loss = self._bg_loss(bg, tar_bg).sum(-1).sum(-1)
         gmm_loss = self._compute_gmm_loss(p, pxyz_mu, pxyz_sig, tar_param, tar_mask)

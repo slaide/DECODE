@@ -137,6 +137,7 @@ def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False):
                 
             cell_mask_dir=position/"warped_dist_masks"
             fluorescence_dir=position/"fluor_cropped"
+            assert cell_mask_dir.exists() and fluorescence_dir.exists(),"real data not properly pre-processed"
                 
             # TODO : the image lists need to be sorted by index! (by the index number that is contained in their filenames. should be last 8 letters/digits in the filename, excl. filetype)
                 
@@ -243,12 +244,12 @@ class MaskedSimulation:
 
         snippets_returned=0
 
-        snippets=torch.zeros(2,self.num_frames,self.frame_size[0],self.frame_size[1])
+        snippets=torch.zeros(2,self.num_frames,self.frame_size[0],self.frame_size[1]) # will be returned from this function
 
         num_frames_sampled=0
         snippets_generated_total=0
 
-        emitter_set=None # will be returned
+        emitter_set=None # will be returned from this function
 
         sample_counter=0.0
         snippetization_counter=0.0
@@ -276,20 +277,6 @@ class MaskedSimulation:
             if self.full_frame_psf:
                 frames, frames_bg = self.forward(mask, single_frame_emitter_set)
 
-            # emitter-psf folding works!
-            if False:
-                plt.figure(figsize=(15,15))
-                plt.imshow(mask)
-                plt.scatter(single_frame_emitter_set.xyz_px[:,1],single_frame_emitter_set.xyz_px[:,0])
-                plt.show()
-
-                plt.figure(figsize=(15*2,15*2))
-                plt.imshow(frames.cpu()[0])
-                #plt.scatter(single_frame_emitter_set.xyz_px[:,1],single_frame_emitter_set.xyz_px[:,0],s=10,c="yellow")
-                plt.show()
-
-                raise Error()
-
             sample_counter+=perf_counter()-sample_start
 
             dim_0_snippet_count=mask.shape[0]//self.frame_size[0]
@@ -300,7 +287,6 @@ class MaskedSimulation:
             snippetization_start=perf_counter()
 
             snippets_generated_in_frame=0
-            single_frame_emitter_subsets=None
 
             #assert frames.shape[1]==mask.shape[0]
             #assert frames.shape[2]==mask.shape[1]
@@ -316,14 +302,12 @@ class MaskedSimulation:
                     current_total_snippet_index=i_i*dim_1_snippet_count+j_i
 
                     if i+self.frame_size[0] <= mask.shape[0] and j+self.frame_size[1] <= mask.shape[1]:
-                        padding_fraction=0.3
-                        padding=0#10#self.frame_size[0]*padding_fraction
-                        #single_frame_emitter_subset_no_shift=single_frame_emitter_set.emitters_in_region(ax0=(i-self.frame_size[0]/2,i+self.frame_size[0]*1.5),ax1=(j-self.frame_size[1]/2,j+self.frame_size[1]*1.5)).clone()
-                        single_frame_emitter_subset=single_frame_emitter_set.emitters_in_region(ax0=(i-padding,i+self.frame_size[0]+padding),ax1=(j-padding,j+self.frame_size[1]+padding)).clone()
-                        single_frame_emitter_subset.xyz_px[:,0]-=i
-                        single_frame_emitter_subset.xyz_px[:,1]-=j
+                        single_frame_emitter_subset=single_frame_emitter_set.emitters_in_region(ax0=(i,i+self.frame_size[0]),ax1=(j,j+self.frame_size[1])).clone()
 
                         if len(single_frame_emitter_subset)>0:
+                            single_frame_emitter_subset.xyz_px[:,0]-=i
+                            single_frame_emitter_subset.xyz_px[:,1]-=j
+
                             # forward emitter position through image simulation pipeline
                             if self.full_frame_psf:
                                 snippets[:,snippets_returned,:,:]=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
@@ -348,20 +332,12 @@ class MaskedSimulation:
             if snippets_returned==self.num_frames:
                 break
 
-        frames_bg=snippets[1,:,:,:]
         frames=snippets[0,:,:,:]
+        frames_bg=snippets[1,:,:,:]
 
         assert len(emitter_set)>=self.num_frames,"there is not at least one emitter per frame. this is a bug"
 
         print(f"[perf] sample fn total: {(perf_counter()-sample_fn_start):5.3f}s [ sample: {sample_counter:5.3f}s, snippetization: {snippetization_counter:5.3f}s ]")
-
-        """ save first generated image stack for debugging """
-        tif_path=Path("snippet_stack.tiff")
-        if False and not tif_path.exists():
-            debug_frames=frames.clone().detach()
-            debug_frames/=debug_frames.max()
-            debug_frames=skimage.img_as_ubyte(debug_frames.cpu().numpy())
-            skimage.io.imsave(str(tif_path),debug_frames,plugin='tifffile', compress = 6, check_contrast=False)
 
         return emitter_set, frames, frames_bg
 

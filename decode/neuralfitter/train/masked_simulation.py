@@ -17,6 +17,9 @@ def setup_masked_simulation(param):
     if not param.Simulation.full_frame_psf:
         param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
         param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
+        print("using frame-wise psf simulation")
+    else:
+        print("using full-frame psf simulation")
 
     if param.Simulation.mode in ("acquisition", "apriori"):
         frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
