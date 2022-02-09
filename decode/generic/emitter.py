@@ -853,7 +853,7 @@ class EmitterSet:
 
         ret_set=self[mask]
 
-        if purge and False:
+        if purge:
             self=self[~mask]
 
         if shift:

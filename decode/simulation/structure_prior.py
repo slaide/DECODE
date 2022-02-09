@@ -153,6 +153,11 @@ class CellMaskStructure:
 
         total_emitter_coordinates=torch.tensor([])
 
+        assert self.zextent[0]<self.zextent[1]
+        
+        zrange=self.zextent[1]-self.zextent[0]
+        z_sampler=torch.distributions.uniform.Uniform(0,1) #torch.distributions.beta.Beta(5,5)
+
         #plt.figure(figsize=(15,16))
         #plt.imshow(mask)
         for region_id,region in enumerate(regions):
@@ -175,11 +180,7 @@ class CellMaskStructure:
             # TODO sample emitter positions outside pixel center (maybe add uniformly distributed offset within pixel area? should be good enough)
             emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
 
-            assert self.zextent[0]<self.zextent[1]
-            
-            zrange=self.zextent[1]-self.zextent[0]
-            #emitters_z=torch.distributions.beta.Beta(5,5).sample((num_emitters_in_this_cell,)) * zrange # * mask[emitter_coordinates]
-            emitters_z=torch.distributions.uniform.Uniform(0,zrange).sample((num_emitters_in_this_cell,)) # * mask[emitter_coordinates]
+            emitters_z=z_sampler.sample((num_emitters_in_this_cell,)) * zrange # * mask[emitter_coordinates]
             emitter_coordinates[:,2]=emitters_z - self.zextent[1]
 
             emitter_coordinates[:,0]+=minr
@@ -190,6 +191,10 @@ class CellMaskStructure:
             else:
                 total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
         
+        # add a random sub-pixel offset
+        total_emitter_coordinates[:,0]+=torch.distributions.uniform.Uniform(-0.5,0.5).sample((total_emitter_coordinates.shape[0],))
+        total_emitter_coordinates[:,1]+=torch.distributions.uniform.Uniform(-0.5,0.5).sample((total_emitter_coordinates.shape[0],))
+
         return total_emitter_coordinates
 
     @classmethod

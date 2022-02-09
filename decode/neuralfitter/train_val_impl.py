@@ -137,8 +137,8 @@ def ship_device(x:Optional[Union[torch.Tensor,tuple,list]], device: Union[str, t
         return x.to(device)
 
     elif isinstance(x, (tuple, list)):
-        x = [ship_device(x_el, device) for x_el in x]  # a nice little recursion that worked at the first try
+        x = [ship_device(x_el, device) for x_el in x]
         return x
 
     elif device != 'cpu':
-        raise NotImplementedError(f"Unsupported data type (x={type(x)}, device={device})for shipping from host to CUDA device.")
+        raise NotImplementedError(f"Unsupported data type (x: {type(x)}, device={device})for shipping from host to CUDA device.")

@@ -14,12 +14,19 @@ def setup_masked_simulation(param):
 
     """ frame ranges """
 
-    if not param.Simulation.full_frame_psf:
+
+    if not param.Simulation.full_frame_psf: # simplifies params.yaml file slightly
         param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
         param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
         print("using frame-wise psf simulation")
     else:
         print("using full-frame psf simulation")
+
+    if param.TestSet.frame_extent is None: # must be None or tuple of tuples
+        param.TestSet.frame_extent=((0,param.Simulation.img_size[0]),(0,param.Simulation.img_size[1]))
+
+    if param.TestSet.img_size is None: # must be none or tuple (tuple must be equal to param.Simulation.img_size)
+        param.TestSet.img_size=param.Simulation.img_size
 
     if param.Simulation.mode in ("acquisition", "apriori"):
         frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
@@ -60,7 +67,7 @@ def setup_masked_simulation(param):
     ).init_spline(
         xextent=param.Simulation.psf_extent[0],
         yextent=param.Simulation.psf_extent[1],
-        img_shape=(param.Simulation.psf_extent[0][1],param.Simulation.psf_extent[1][1]) if param.Simulation.full_frame_psf else param.Simulation.img_size,
+        img_shape=(param.Simulation.psf_extent[0][1],param.Simulation.psf_extent[1][1]), # img_shape and psf_extent are always equal
         device=param.Hardware.device_simulation,
         roi_size=param.Simulation.roi_size,
         roi_auto_center=param.Simulation.roi_auto_center
@@ -77,7 +84,8 @@ def setup_masked_simulation(param):
         num_frames=frame_range_train[1],
         frame_size=param.Simulation.img_size,
         full_frame_psf=param.Simulation.full_frame_psf,
-        also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
+        also_yield_fluorescence=param.Simulation.also_yield_fluorescence,
+        device=param.Hardware.device_simulation)
 
     """ setup simulation for testing """
 
@@ -90,6 +98,15 @@ def setup_masked_simulation(param):
         num_frames=frame_range_test[1],
         frame_size=param.Simulation.img_size,
         full_frame_psf=param.Simulation.full_frame_psf,
-        also_yield_fluorescence=param.Simulation.also_yield_fluorescence)
+        also_yield_fluorescence=param.Simulation.also_yield_fluorescence,
+        device=param.Hardware.device_simulation)
+
+    param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
+    param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
+
+    frame_size_fraction=(param.Simulation.img_size[0]*param.Simulation.img_size[1])/(40*40) # rescale <brightness threshold, other things> to match new image size (more precisely, brightness seems to be distributed across all emitters, not across the whole frame, so this parameter should better be rescaled with the [average] number of emitters per frame, though this number is proportional to the frame size)
+    param.PostProcessingParam.raw_th/=frame_size_fraction
+    param.HyperParameter.max_number_targets=int(param.HyperParameter.max_number_targets*frame_size_fraction)
+    param.Simulation.emitter_av*=frame_size_fraction # probably not required
 
     return simulation_train, simulation_test

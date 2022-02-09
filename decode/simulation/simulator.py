@@ -197,7 +197,7 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, also_yield_fluorescence=False):
+    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, also_yield_fluorescence=False, device:Union[str,torch.device]="cpu"):
         """
         Init Simulation.
 
@@ -227,6 +227,8 @@ class MaskedSimulation:
         self.snippet_buffer_bg=None
 
         self.full_frame_psf=full_frame_psf
+
+        self.device=device
 
     def sample(self):
         """
@@ -275,7 +277,7 @@ class MaskedSimulation:
 
             # forward emitter position through image simulation pipeline
             if self.full_frame_psf:
-                frames, frames_bg = self.forward(mask, single_frame_emitter_set)
+                frames, frames_bg = self.forward(mask, single_frame_emitter_set, device=self.device)
 
             sample_counter+=perf_counter()-sample_start
 
@@ -312,7 +314,7 @@ class MaskedSimulation:
                             if self.full_frame_psf:
                                 snippets[:,snippets_returned,:,:]=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
                             else:
-                                frames, frames_bg = self.forward(mask[i:i+self.frame_size[0],j:j+self.frame_size[1]], single_frame_emitter_subset)
+                                frames, frames_bg = self.forward(mask[i:i+self.frame_size[0],j:j+self.frame_size[1]], single_frame_emitter_subset, device=self.device)
                                 snippets[:,snippets_returned,:,:]=frames
 
                             single_frame_emitter_subset.frame_ix[:]=snippets_returned
@@ -341,7 +343,7 @@ class MaskedSimulation:
 
         return emitter_set, frames, frames_bg
 
-    def forward(self, mask:torch.Tensor, em: EmitterSet) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, mask:numpy.ndarray, em: EmitterSet, device:Union[str,torch.device]="cpu") -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward an EmitterSet through the simulation pipeline.
 
@@ -358,7 +360,7 @@ class MaskedSimulation:
 
         """ Add background. The difference between background and noise is, that background is assumed to be independent of the emitter position / signal. """
         
-        bg_frames = self.background.sample(mask=torch.tensor(mask))
+        bg_frames = self.background.sample(mask=torch.from_numpy(mask),device=device)
 
         """
         Add background. This needs to happen here and not on a single frame, since background may be correlated.

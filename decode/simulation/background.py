@@ -187,16 +187,17 @@ class MaskedBackground:
         flowcell_background = self.flowcell_background.sample(mask.shape,device)
         cell_background     = self.cell_background.sample(mask.shape,device)
 
-        mask_float32=skimage.img_as_float32(mask.numpy())
-        #assert (mask_float32.max()-1.0)<1e-6
-        #assert (mask_float32.min())<1e-6
+        mask_float32=mask.to(dtype=torch.float32)
+        mf32_max=mask_float32.max()
+        if mf32_max>1.0:
+            mask_float32/=mf32_max
+        assert (mask_float32.min())<1e-6
 
         cell_background*=mask_float32
 
         # print(f"{cell_background.dtype} {cell_background.min():4.2f} {cell_background.max():4.2f}")
         # print(f"{flowcell_background.dtype} {flowcell_background.min():4.2f} {flowcell_background.max():4.2f}")
 
-        # mask uniformly sampled cell background
         background=flowcell_background + cell_background
 
         return background
