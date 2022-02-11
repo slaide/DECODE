@@ -418,7 +418,6 @@ class CubicSplinePSF(PSF):
         if (self.img_shape[0] != (self.xextent[1] - self.xextent[0])) or \
                 (self.img_shape[1] != (self.yextent[1] - self.yextent[0])):
             raise ValueError("Unequal size of extent and image shape not supported.")
-            #pass # patrick does not care
 
         if (torch.tensor(self.roi_size_px) > torch.tensor(self._roi_native)).any():
             warnings.warn("The specified ROI size is larger than the size supported by the spline coefficients."

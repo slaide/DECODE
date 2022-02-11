@@ -197,7 +197,7 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, also_yield_fluorescence=False, device:Union[str,torch.device]="cpu"):
+    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, also_yield_fluorescence:bool=False, device:Union[str,torch.device]="cpu"):
         """
         Init Simulation.
 

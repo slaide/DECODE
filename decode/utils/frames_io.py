@@ -8,7 +8,7 @@ from typing import Union, Tuple, Callable, Iterable
 from tqdm import tqdm
 
 
-def load_tif(path: (str, pathlib.Path), multifile=True) -> torch.Tensor:
+def load_tif(path: Union[str, pathlib.Path], multifile:bool=True) -> torch.Tensor:
     """
     Reads the tif(f) files. When a folder is specified, potentially multiple files are loaded.
     Which are stacked into a new first axis.
