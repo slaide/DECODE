@@ -49,9 +49,6 @@ def parse_args():
     parser.add_argument('-c', '--log_comment', default=None,
                         help='Add a log_comment to the run.')
 
-    parser.add_argument('-s', '--simulation_name', default="random",
-                        help='either "masked" or "random"')
-
     args = parser.parse_args()
     return args
 
@@ -59,7 +56,7 @@ def parse_args():
 def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None, debug: bool = False,
                       no_log: bool = False,
                       num_worker_override: int = None,
-                      log_folder: str = 'runs', log_comment: str = None, *, simulation_name:str="random"):
+                      log_folder: str = 'runs', log_comment: str = None):
     """
     Sets up the engine to train DECODE. Includes sample simulation and the actual training.
 
@@ -77,6 +74,29 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
     """Load Parameters and back them up to the network output directory"""
     param_file = Path(param_file)
     param = decode.utils.param_io.ParamHandling().load_params(param_file)
+
+    # setup simulation out of order here because parameters required for auto_scaling are derived here
+    if param.Simulation.type=="random":
+        print(f"using {param.Simulation.type} simulation")
+        param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
+        param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
+        param.Simulation.lifetime_avg=param.Simulation.lifetime_avg or 1.0
+
+        param.TestSet.frame_extent=param.Simulation.psf_extent
+        param.TestSet.img_size=param.Simulation.img_size
+
+        param.Simulation.emitter_extent[0]=param.Simulation.psf_extent[0]
+        param.Simulation.emitter_extent[1]=param.Simulation.psf_extent[1]
+
+        sim_train, sim_test = setup_random_simulation(param)
+    elif param.Simulation.type=="masked":
+        print(f"using {param.Simulation.type} simulation")
+        sim_train, sim_test = setup_masked_simulation(param)
+    else:
+        raise ValueError
+
+    if sim_train.em_sampler.intensity_dist_type=="discrete":
+        param.Simulation.intensity_mu_sig=sim_train.em_sampler._intensity_mu_sig()
 
     # auto-set some parameters (will be stored in the backup copy)
     param = decode.utils.param_io.autoset_scaling(param)
@@ -172,15 +192,6 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
                                                                          "dphot_red_mu",
                                                                          "dphot_red_sig"]),
              decode.neuralfitter.utils.logger.DictLogger()])
-
-
-    print(f"using {simulation_name} simulation")
-    if simulation_name=="random":
-        sim_train, sim_test = setup_random_simulation(param)
-    elif simulation_name=="masked":
-        sim_train, sim_test = setup_masked_simulation(param)
-    else:
-        raise ValueError
 
     ds_train, ds_test, model, model_ls, optimizer, criterion, lr_scheduler, grad_mod, post_processor, matcher, ckpt = \
         setup_trainer(sim_train, sim_test, logger, model_out, ckpt_path, device, param)
@@ -507,4 +518,4 @@ if __name__ == '__main__':
     args = parse_args()
     live_engine_setup(args.param_file, args.device, args.debug, args.no_log,
                       args.num_worker_override, args.log_folder,
-                      args.log_comment,simulation_name=args.simulation_name)
+                      args.log_comment)

@@ -108,16 +108,12 @@ import skimage.morphology
 class CellMaskStructure:
     """
     sample emitters based on pixel values in a (cell) segmentation mask
-    , where px(i,j)=1 represents a cell at that pixel
+    , where px(i,j)>0 represents a (part of a) cell at that pixel
     """
     def __init__(self, zextent: Tuple[float, float]):
         """
         Args:
-            zextent: extent in z (lower_limit,upper_limit)
-
-        Example:
-            The following initialises this class in a range of 32 x 32 px in x and y and +/- 750nm in z.
-            >>> prior_struct = RandomStructure(xextent=(-0.5, 31.5), yextent=(-0.5, 31.5), zextent=(-750., 750.))
+            zextent: extent in z in nm (lower_limit,upper_limit)
 
         """
 
@@ -135,65 +131,78 @@ class CellMaskStructure:
             
         """
         
-        label_mask=mask.copy()
-        label_mask[mask>0]=255
+        # make (possibly) distance labeled mask binary
+        label_mask=mask>0
+        # label for regionprops (get bounding box for each cell in the mask)
         label_mask=label(label_mask)
         regions=regionprops(label_mask,cache=True)
 
-        #pixel_area=(65e-3)**2
-        #max_area=3.5/pixel_area
-        cell_areas=torch.tensor([cell.area for cell in regions])
+        pixel_area=(65e-3)**2 # currently hardcoded # TODO needs to be changed to take value from parameter file
+        #max_area=3.5/pixel_area # currently unused (expected to be not actually an issue, currently sometimes is one due to slightly unfit segmentation mask)
+        min_area=1/pixel_area
+        # mask should have filtered areas with size smaller than min, but somehow this is not actually the case, so double check here
+        cell_regions=[cell for cell in regions if cell.area>=min_area]
 
-        probs=torch.tensor([0.0,1.8,1.7,0.0,0.1]) # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
-        num_emitters=torch.multinomial(probs,num_samples=cell_areas.shape[0],replacement=True)
+        # sample number of emitters per cell from experimental data
+        # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
+        probs=torch.tensor([0.0,1.8,1.7,0.0,0.1])
+        num_emitters=torch.multinomial(probs,num_samples=len(cell_regions),replacement=True)
         #print(num_emitters)
 
+        # convert mask from numpy to torch for later functions that require torch tensor
         mask=skimage.img_as_float(mask)
         torch_mask=torch.from_numpy(mask)
 
+        # will be returned (list of all emitter coordinates in 3d)
+        # size is random # TODO slight performance improvement because size is random, but known at this point: num_emitters has already been sampled
         total_emitter_coordinates=torch.tensor([])
 
-        assert self.zextent[0]<self.zextent[1]
+        assert self.zextent[0]<self.zextent[1] # should be symmetric, but is asserted nowhere. we make a math assumption below that requires at least this to hold
         
         zrange=self.zextent[1]-self.zextent[0]
-        z_sampler=torch.distributions.uniform.Uniform(0,1) #torch.distributions.beta.Beta(5,5)
+        z_sampler=torch.distributions.uniform.Uniform(0,1) #torch.distributions.beta.Beta(5,5) is centered better, but unsure if this is what we actually want
 
         #plt.figure(figsize=(15,16))
         #plt.imshow(mask)
-        for region_id,region in enumerate(regions):
+        # for each cell/region in the mask:
+        for region_id,region in enumerate(cell_regions):
             minr, minc, maxr, maxc = region.bbox
             #bx = (minc, maxc, maxc, minc, minc)
             #by = (minr, minr, maxr, maxr, minr)
             #plt.plot(bx,by)
 
-            mask_snippet=torch_mask[minr:maxr,minc:maxc]
+            mask_snippet=torch_mask[minr:maxr,minc:maxc] # _may_ include overlapping very close cells (so far, has not been an issue)
 
+            # get coordinates of all pixels that are inside a cell
             cell_mask_nonzero_vector=mask_snippet.nonzero(as_tuple=False)
-
+            # get value of the pixels that are inside cells
             cell_mask_nonzero_tuple=(cell_mask_nonzero_vector[:,0],cell_mask_nonzero_vector[:,1])
-
             cell_mask_weights=mask_snippet[cell_mask_nonzero_tuple]
 
             num_emitters_in_this_cell=num_emitters[region_id]
-
             emitter_coordinates=torch.zeros((num_emitters_in_this_cell,3))
-            # TODO sample emitter positions outside pixel center (maybe add uniformly distributed offset within pixel area? should be good enough)
+            # sample x/y coordinates from list of pixels inside cells, using the cell depth penetration value (term up for debate) as weight
             emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
 
-            emitters_z=z_sampler.sample((num_emitters_in_this_cell,)) * zrange # * mask[emitter_coordinates]
+            # sample z coordinate from some non-experimental distribution (because we dont have better data here)
+            # could multiply this with mask[emitter_coordinates] to actually sample from within the estimated cell body, though this might overfit the ai on data we _expect_ to be realistic (which e.g. also expects the segmentation mask to be perfect)
+            # better leave it as is to increase the variety of the training data
+            emitters_z=z_sampler.sample((num_emitters_in_this_cell,)) * zrange
             emitter_coordinates[:,2]=emitters_z - self.zextent[1]
 
+            # offset coordinates for global (frame) placement (before this, the coordinates are in cell-local space)
             emitter_coordinates[:,0]+=minr
             emitter_coordinates[:,1]+=minc
 
+            # if the coordinates are supposed to be returned grouped per cell, do so
             if per_cell:
                 total_emitter_coordinates=torch.cat((total_emitter_coordinates,[emitter_coordinates]),0)
             else:
                 total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
         
         # add a random sub-pixel offset
-        total_emitter_coordinates[:,0]+=torch.distributions.uniform.Uniform(-0.5,0.5).sample((total_emitter_coordinates.shape[0],))
-        total_emitter_coordinates[:,1]+=torch.distributions.uniform.Uniform(-0.5,0.5).sample((total_emitter_coordinates.shape[0],))
+        subpixel_offset_dist=torch.distributions.uniform.Uniform(-0.5,0.5)
+        total_emitter_coordinates[:,:2]+=subpixel_offset_dist.sample((total_emitter_coordinates.shape[0],2))
 
         return total_emitter_coordinates
 

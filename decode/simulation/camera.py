@@ -56,7 +56,7 @@ class Photon2Camera(Camera):
 
     @classmethod
     def parse(cls, param):
-
+        
         return cls(qe=param.Camera.qe, spur_noise=param.Camera.spur_noise,
                    em_gain=param.Camera.em_gain, e_per_adu=param.Camera.e_per_adu,
                    baseline=param.Camera.baseline, read_sigma=param.Camera.read_sigma,
@@ -69,7 +69,7 @@ class Photon2Camera(Camera):
                f"e_per_adu {self.e_per_adu} | Baseline {self.baseline} | Readnoise {self._read_sigma}\n" + \
                f"Output in Photon units: {self.photon_units}"
 
-    def forward(self, x: torch.Tensor, device: Union[str, torch.device] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, device: Union[str, torch.device] = None, sample_photons:bool=True, sample_read_noise:bool=True) -> torch.Tensor:
         """
         Forwards frame through camera
 
@@ -88,23 +88,28 @@ class Photon2Camera(Camera):
         """Clamp input to 0."""
         x = torch.clamp(x, 0.)
 
+        """ baseline values for further calculations"""
+        camera=x * self.qe + self.spur
+
         """Poisson for photon characteristics of emitter (plus autofluorescence etc."""
-        camera = self.poisson.forward(x * self.qe + self.spur)
+        if sample_photons:
+            camera = self.poisson.forward(camera)
 
         """Gamma for EM-Gain (EM-CCD cameras, not sCMOS)"""
         if self._em_gain is not None:
             camera = self.gain.forward(camera)
 
         """Gaussian for read-noise. Takes camera and adds zero centred gaussian noise."""
-        camera = self.read.forward(camera)
+        if sample_read_noise:
+            camera = self.read.forward(camera)
 
         """Electrons per ADU, (floor function)"""
         camera /= self.e_per_adu
         camera = camera.floor()
 
-        """Add Manufacturer baseline, then make sure it's not below 0."""
+        """Add Manufacturer baseline, then clamp to 0 again."""
         camera += self.baseline
-        camera = torch.max(camera, torch.tensor([0.]).to(camera.device))
+        camera = torch.clamp(camera, 0.)
 
         if self.photon_units:
             return self.backward(camera, device)

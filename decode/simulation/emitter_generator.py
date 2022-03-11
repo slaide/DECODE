@@ -8,7 +8,7 @@ from torch.distributions.exponential import Exponential
 import decode.generic.emitter
 from . import structure_prior
 
-from typing import Tuple
+from typing import Tuple, Union
 
 class EmitterSampler(ABC):
     """
@@ -226,6 +226,58 @@ from decode.generic.emitter import EmitterSet
 import matplotlib.pyplot as plt
 
 import numpy
+from scipy.io import loadmat
+
+class DiscreteEmitterIntensitySampler:
+    # the value sampled from the discrete distribution (from real experiments) seems to be a scaling value of the 'height' of the gaussian distribution that was approximated for emitters
+    # the psf simulation function expects this value to be the brightness of the whole area of the psf though, so we need to scale that
+    # this value is _very_ rough estimate
+    N_to_area:float=5.0 # was 20 at some point... who knows whats real
+    
+    # noise is required in case the photon counts at some point are not actually photon counts, but camera units
+    def __init__(self,noise,path:str,p:str):
+        self.path=path
+
+        mat=loadmat(path)
+
+        if p not in ("c","v"):
+            raise ValueError(f"DiscreteEmitterIntensiySampler.sample:p must be in (v,c) but is {p}")
+
+        temp_intensity_scale_factor:float=1.0
+
+        if p=="c":
+            photonCounts=mat["photonCountsC"]*DiscreteEmitterIntensitySampler.N_to_area
+        else: # if p=="v":
+            photonCounts=mat["photonCountsV"]*DiscreteEmitterIntensitySampler.N_to_area
+
+        self.max_brightness=10000 # manually filtered by konrad
+        self.max_brightness=self.max_brightness*DiscreteEmitterIntensitySampler.N_to_area
+        num_bins=20000
+
+        self.bin_max=self.max_brightness
+        self.bin_min=0
+        self.num_bins=num_bins
+        self.bin_step=self.max_brightness/num_bins
+
+        self.max_phot_count=photonCounts.max()
+        self.mean=photonCounts.mean()
+
+        assert self.max_phot_count<=self.max_brightness
+
+        bins=numpy.arange(self.bin_min,self.bin_max,self.bin_step)
+
+        binned_phot_count,_bins_c=numpy.histogram(photonCounts,bins)
+
+        binned_phot_count=binned_phot_count.astype(numpy.float32)#/binned_phot_count.sum()
+
+        self.intensity_dist=torch.from_numpy(binned_phot_count)
+
+    def sample(self,shape:tuple):
+        assert len(shape)==1
+        intensities=torch.multinomial(self.intensity_dist,num_samples=shape[0],replacement=True)+self.bin_min
+        intensities=intensities*self.bin_step
+
+        return intensities
 
 class MaskedEmitterSampler:
     emitters_sampled=0
@@ -233,8 +285,8 @@ class MaskedEmitterSampler:
     """
     static emitters, frame dependent
     """
-    def __init__(self, *, structure: structure_prior.CellMaskStructure, intensity_mu_sig: Tuple[float,float],
-                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8):
+    def __init__(self, *, structure: structure_prior.CellMaskStructure, intensity_mu_sig: Union[Tuple[float,float],Tuple[str,str]],
+                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8,**kwargs):
         """
 
         Args:
@@ -251,8 +303,19 @@ class MaskedEmitterSampler:
 
         self.num_frames = num_frames
         self.intensity_mu_sig = intensity_mu_sig
-        self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
+        if isinstance(self.intensity_mu_sig[0],float):
+            assert isinstance(self.intensity_mu_sig[1],float)
+            self.intensity_dist_type="normal"
+            self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
+                                                                    self.intensity_mu_sig[1])
+        else:
+            assert isinstance(self.intensity_mu_sig[0],str)
+            assert isinstance(self.intensity_mu_sig[1],str)
+            self.intensity_dist_type="discrete"
+            self.intensity_dist=DiscreteEmitterIntensitySampler(kwargs["noise"],
+                                                                self.intensity_mu_sig[0],
                                                                 self.intensity_mu_sig[1])
+
         self.intensity_th = intensity_th
 
         if not xy_unit in ("px","nm"):
@@ -283,14 +346,13 @@ class MaskedEmitterSampler:
 
         self.em_avg=num_emitters # required by neuralfitter.train.live_engine_setup
 
-        # intensity == photon flux
-        intensity = torch.clamp(self.intensity_dist.sample((num_emitters,)), min=self.intensity_th)
-        # (max?) photon count per emitter
-        phot_=intensity # type: torch.Tensor # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?)
+        # (median) photon count per emitter
+        intensity:torch.Tensor = torch.clamp(self.intensity_dist.sample((num_emitters,)), min=self.intensity_th)
+        phot_:torch.Tensor=intensity # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?))
         # frame index of emitters
-        frame_ix_=torch.zeros((num_emitters,))
+        frame_ix_:torch.Tensor=torch.zeros((num_emitters,))
         # id of emitters
-        id_=torch.arange(num_emitters) # type: torch.Tensor # just give every emitter a unique id. does not matter for us since emitters exist for one frame only (at least for now where all frames are completely independent)
+        id_:torch.Tensor=torch.arange(num_emitters) # just give every emitter a unique id. does not matter for us since emitters exist for one frame only (at least for now where all frames are completely independent)
 
         id_+=MaskedEmitterSampler.emitters_sampled
         MaskedEmitterSampler.emitters_sampled+=num_emitters
@@ -301,10 +363,20 @@ class MaskedEmitterSampler:
         return EmitterSet(emitter_positions, phot_, frame_ix_.long(), id_.long(), xy_unit=self.xy_unit, px_size=self.px_size) # px_size is not well documented. _should_ be nanometer per side?
 
     @classmethod
-    def parse(cls, param, structure, num_frames: int):
+    def parse(cls, param, structure, num_frames: int,**kwargs):
         return cls(structure=structure,
                    intensity_mu_sig=param.Simulation.intensity_mu_sig,
                    xy_unit="px",
                    px_size=param.Camera.px_size,
                    num_frames=num_frames,
-                   intensity_th=param.Simulation.intensity_th or 1e-8)
+                   intensity_th=param.Simulation.intensity_th or 1e-8,
+                   **kwargs)
+
+    # fake a normal distribution for network input scaling
+    def _intensity_mu_sig(self):
+        if self.intensity_dist_type=="discrete":
+            mu=float(self.intensity_dist.mean)
+            sig=float(self.intensity_dist.mean)/2
+            return (mu,sig)
+        else:
+            raise RuntimeError()

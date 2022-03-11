@@ -306,10 +306,14 @@ class SMLMAPrioriDataset(SMLMLiveDataset):
         t0 = time.time()
         emitter, frames, bg_frames = self.simulator.sample()
 
+        assert emitter.xyz_px.shape[0]>0
+
         if verbose:
             print(f"Sampled dataset in {time.time() - t0:.2f}s. {len(emitter)} emitters on {frames.size(0)} frames.")
 
         frames, target, weight, tar_emitter = self._process_sample(frames, emitter, bg_frames)
+        assert tar_emitter.xyz_px.shape[0]>0
+        
         self._frames = frames.cpu()
         self._emitter = tar_emitter
         self._em_split = tar_emitter.split_in_frames(0, frames.size(0) - 1)

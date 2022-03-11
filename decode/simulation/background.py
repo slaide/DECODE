@@ -7,7 +7,7 @@ import torch
 from decode.simulation import psf_kernel as psf_kernel
 import decode.utils
 
-from typing import Union
+from typing import Union, Tuple
 
 class Background(ABC):
     """
@@ -106,7 +106,7 @@ class UniformBackground(Background):
 
     """
 
-    def __init__(self, bg_uniform: Union[float, tuple] = None, bg_sampler=None, forward_return=None):
+    def __init__(self, bg_uniform: Union[float, Tuple[float, float]] = None, bg_sampler=None, forward_return=None):
         """
         Adds spatially constant background.
 
@@ -156,6 +156,73 @@ def _get_delta_sampler(val: float):
 
 import skimage
 import numpy
+import matplotlib.pyplot as plt
+import pickle
+
+class DiscreteBackground:
+    def __init__(self,distribution:dict):
+        assert distribution["as_photons"]
+        assert isinstance(distribution["max_x"],float)
+
+        max_dist_length=numpy.max([distribution[key].shape[0] for key in distribution if isinstance(key,int)])
+        num_i=len([key for key in distribution if isinstance(key,int)])
+        numpy_dist=numpy.zeros((num_i,max_dist_length))
+
+        # make sure all distributions have same size (will with 0)
+        for key in distribution:
+            if not isinstance(key,int):
+                continue
+
+            dist_at_key=distribution[key]
+            numpy_dist[key][0:dist_at_key.shape[0]]=dist_at_key
+            assert dist_at_key.sum()>0
+
+        self.distribution=torch.from_numpy(numpy_dist.astype(numpy.float32))
+        self.max_x=distribution["max_x"]
+
+        self.means=[distribution[f"{i}_mean"] for i in range(0,num_i)]
+
+    def sample(self, *, mask:torch.Tensor, device:Union[torch.device,str]=torch.device('cpu')) -> torch.Tensor:
+        sampled_bg=torch.zeros(mask.shape,dtype=torch.float32,device="cpu")
+
+        mask_max=mask.max()
+        for i in range(0,mask_max+1,1):
+            sampled_distribution=self.distribution[i if self.distribution.shape[0]>i else (self.distribution.shape[0]-1),:]
+
+            mask_i=mask==i
+            num_samples=mask_i.sum()
+            #assert num_samples>0, f"i: {i}, max: {mask_max}"
+            if num_samples>0:
+                #print(f"{num_samples} {i}")
+                sampled_bg_at_i=torch.multinomial(sampled_distribution,num_samples=num_samples,replacement=True)
+                sampled_bg_at_i=sampled_bg_at_i.to(torch.float32)/sampled_distribution.shape[0]*self.max_x
+
+                if False:
+                    bins=numpy.arange(0,self.max_x,3)
+                    digits=numpy.histogram(sampled_bg_at_i,bins=bins)[0]
+                    plt.plot(bins[:-1],digits)
+                    plt.title(f"{i}/{mask_max}")
+                    plt.show()
+
+                #assert sampled_bg_at_i.sum()>0
+
+                sampled_bg[mask_i]=sampled_bg_at_i
+
+        return sampled_bg.to(device)
+
+    def _bg_uniform(self):
+        mean_lower=float(self.means[0])
+        mean_upper=float(self.means[len(self.means)-1])
+        
+        return mean_lower,mean_upper
+
+    @staticmethod
+    def parse(param):
+        pickle_file_name=param.Simulation.background.distribution
+        with open(pickle_file_name,"rb") as pickle_file:
+            pickle_data=pickle.load(pickle_file)
+
+        return DiscreteBackground(pickle_data)
 
 class MaskedBackground:
     """
@@ -172,13 +239,12 @@ class MaskedBackground:
         if flowcell_background is None or cell_background is None:
             raise ValueError("flowcell and cell background need to be specified (seperately)!")
 
-        # we dont use forward return for anything since we dont forward anything through the background, but the function throws if forward_return is None/unset
         self.flowcell_background=UniformBackground(bg_uniform=flowcell_background,forward_return="like")
         self.cell_background=UniformBackground(bg_uniform=cell_background,forward_return="like")
 
     @staticmethod
     def parse(param):
-        return MaskedBackground(param.Simulation.bg_flowcell, param.Simulation.bg_cell)
+        return MaskedBackground(param.Simulation.background.flowcell, param.Simulation.background.cell)
 
     def sample(self, *, mask:torch.Tensor, device:Union[torch.device,str]=torch.device('cpu')):
         if isinstance(device,str):
@@ -189,9 +255,8 @@ class MaskedBackground:
 
         mask_float32=mask.to(dtype=torch.float32)
         mf32_max=mask_float32.max()
-        if mf32_max>1.0:
-            mask_float32/=mf32_max
-        assert (mask_float32.min())<1e-6
+        mask_float32/=mf32_max
+        #assert (mask_float32.min())<1e-6,"flowcell areas in the mask should have value 0. no flowcell area in mask detected."
 
         cell_background*=mask_float32
 
