@@ -121,7 +121,7 @@ class CellMaskStructure:
 
         self.zextent = zextent
 
-    def sample(self, *, mask: numpy.ndarray, per_cell:bool=False) -> torch.Tensor:
+    def sample(self, *, mask: numpy.ndarray, per_cell:bool=False, fraction_emitters_above_zero:float=0.5,override_probs=None) -> torch.Tensor:
         """
         Returns:
             tensor: list of emitter positions
@@ -145,7 +145,11 @@ class CellMaskStructure:
 
         # sample number of emitters per cell from experimental data
         # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
-        probs=torch.tensor([0.0,1.8,1.7,0.0,0.1])
+        if override_probs is None:
+            probs=torch.tensor([0.0,1.8,1.7,0.0,0.1])
+        else:
+            probs=torch.tensor(override_probs)
+
         num_emitters=torch.multinomial(probs,num_samples=len(cell_regions),replacement=True)
         #print(num_emitters)
 
@@ -159,8 +163,8 @@ class CellMaskStructure:
 
         assert self.zextent[0]<self.zextent[1] # should be symmetric, but is asserted nowhere. we make a math assumption below that requires at least this to hold
         
-        zrange=self.zextent[1]-self.zextent[0]
-        z_sampler=torch.distributions.uniform.Uniform(0,1) #torch.distributions.beta.Beta(5,5) is centered better, but unsure if this is what we actually want
+        #zrange=self.zextent[1]-self.zextent[0]
+        z_sampler=torch.distributions.uniform.Uniform(self.zextent[0],self.zextent[1]) #torch.distributions.beta.Beta(5,5) is centered better, but unsure if this is what we actually want
 
         #plt.figure(figsize=(15,16))
         #plt.imshow(mask)
@@ -187,8 +191,7 @@ class CellMaskStructure:
             # sample z coordinate from some non-experimental distribution (because we dont have better data here)
             # could multiply this with mask[emitter_coordinates] to actually sample from within the estimated cell body, though this might overfit the ai on data we _expect_ to be realistic (which e.g. also expects the segmentation mask to be perfect)
             # better leave it as is to increase the variety of the training data
-            emitters_z=z_sampler.sample((num_emitters_in_this_cell,)) * zrange
-            emitter_coordinates[:,2]=emitters_z - self.zextent[1]
+            emitter_coordinates[:,2]=z_sampler.sample((num_emitters_in_this_cell,))
 
             # offset coordinates for global (frame) placement (before this, the coordinates are in cell-local space)
             emitter_coordinates[:,0]+=minr
@@ -203,6 +206,35 @@ class CellMaskStructure:
         # add a random sub-pixel offset
         subpixel_offset_dist=torch.distributions.uniform.Uniform(-0.5,0.5)
         total_emitter_coordinates[:,:2]+=subpixel_offset_dist.sample((total_emitter_coordinates.shape[0],2))
+
+        # remove the emitters that have been sampled outside the image frame for some reason (should not be more than 1-2 per frame)
+        emitter_mask_outside_frame=(total_emitter_coordinates[:,0]>=0) & (total_emitter_coordinates[:,0]<mask.shape[0]) & (total_emitter_coordinates[:,1]>=0) & (total_emitter_coordinates[:,1]<mask.shape[1])
+        total_emitter_coordinates=total_emitter_coordinates[emitter_mask_outside_frame]
+
+        num_emitters=total_emitter_coordinates.shape[0]
+        z_above_zero_mask=total_emitter_coordinates[:,2]>0
+
+        fraction_above_zero=z_above_zero_mask.sum()/num_emitters
+
+        target_fraction=fraction_emitters_above_zero
+        missing_fraction=target_fraction-fraction_above_zero
+
+        if missing_fraction>0:
+            indices_below_zero=numpy.arange(num_emitters)[~z_above_zero_mask]
+            if missing_fraction>=0.5:
+                to_be_flipped_indices=indices_below_zero
+            else:
+                to_be_flipped_indices=numpy.random.choice(indices_below_zero,size=int(missing_fraction*num_emitters),replace=False)
+        else:#missing_fraction<0
+            indices_above_zero=numpy.arange(num_emitters)[z_above_zero_mask]
+            if missing_fraction<=-0.5:
+                to_be_flipped_indices=indices_above_zero
+            else:
+                to_be_flipped_indices=numpy.random.choice(indices_above_zero,size=int(-missing_fraction*num_emitters),replace=False)
+
+        total_emitter_coordinates[to_be_flipped_indices,2]*=-1.0
+
+        #print(f"target fraction emitters above zero: {target_fraction:.3f}, actual fraction: {((total_emitter_coordinates[:,2]>0).sum()/num_emitters):.3f}")
 
         return total_emitter_coordinates
 

@@ -7,7 +7,6 @@ from deprecated import deprecated
 from . import noise_distributions
 from ..neuralfitter import sampling
 
-
 class Camera(ABC):
 
     @abstractmethod
@@ -17,7 +16,6 @@ class Camera(ABC):
     @abstractmethod
     def backward(self, x: torch.Tensor, device: Union[str, torch.device] = None) -> torch.Tensor:
         raise NotImplementedError
-
 
 class Photon2Camera(Camera):
     """
@@ -107,7 +105,7 @@ class Photon2Camera(Camera):
         camera /= self.e_per_adu
         camera = camera.floor()
 
-        """Add Manufacturer baseline, then clamp to 0 again."""
+        """Add Manufacturer baseline, then clamp to 0 again """
         camera += self.baseline
         camera = torch.clamp(camera, 0.)
 

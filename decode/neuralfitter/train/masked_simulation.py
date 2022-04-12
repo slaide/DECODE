@@ -1,7 +1,6 @@
 import decode.simulation
 import decode.utils
 
-
 def setup_masked_simulation(param):
     """
         Setup the actual simulation
@@ -45,7 +44,8 @@ def setup_masked_simulation(param):
         param, 
         structure=prior_struct, 
         num_frames=frame_range_test[1],
-        noise=None)#noise)
+        noise=None,
+        print_info=False)#noise)
 
     prior_train = decode.simulation.emitter_generator.MaskedEmitterSampler.parse(
         param, 
@@ -111,7 +111,6 @@ def setup_masked_simulation(param):
         num_frames=frame_range_train[1],
         frame_size=param.Simulation.img_size,
         full_frame_psf=param.Simulation.full_frame_psf,
-        also_yield_fluorescence=param.Simulation.also_yield_fluorescence,
         device=param.Hardware.device_simulation)
 
     """ setup simulation for testing """
@@ -125,7 +124,6 @@ def setup_masked_simulation(param):
         num_frames=frame_range_test[1],
         frame_size=param.Simulation.img_size,
         full_frame_psf=param.Simulation.full_frame_psf,
-        also_yield_fluorescence=param.Simulation.also_yield_fluorescence,
         device=param.Hardware.device_simulation)
 
     param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]

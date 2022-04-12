@@ -186,25 +186,17 @@ class DiscreteBackground:
         sampled_bg=torch.zeros(mask.shape,dtype=torch.float32,device="cpu")
 
         mask_max=mask.max()
-        for i in range(0,mask_max+1,1):
+        for i in range(0,mask_max+1):
             sampled_distribution=self.distribution[i if self.distribution.shape[0]>i else (self.distribution.shape[0]-1),:]
 
             mask_i=mask==i
             num_samples=mask_i.sum()
+
             #assert num_samples>0, f"i: {i}, max: {mask_max}"
             if num_samples>0:
                 #print(f"{num_samples} {i}")
                 sampled_bg_at_i=torch.multinomial(sampled_distribution,num_samples=num_samples,replacement=True)
                 sampled_bg_at_i=sampled_bg_at_i.to(torch.float32)/sampled_distribution.shape[0]*self.max_x
-
-                if False:
-                    bins=numpy.arange(0,self.max_x,3)
-                    digits=numpy.histogram(sampled_bg_at_i,bins=bins)[0]
-                    plt.plot(bins[:-1],digits)
-                    plt.title(f"{i}/{mask_max}")
-                    plt.show()
-
-                #assert sampled_bg_at_i.sum()>0
 
                 sampled_bg[mask_i]=sampled_bg_at_i
 

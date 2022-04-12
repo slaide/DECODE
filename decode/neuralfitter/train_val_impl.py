@@ -26,6 +26,13 @@ def train(model, optimizer, loss, dataloader, grad_rescale, grad_mod, epoch, dev
         """Ship the data to the correct device"""
         x, y_tar, weight = ship_device([x, y_tar, weight], device)
         
+        # x: torch.Tensor[
+        #                   batch_num,
+        #                   1,
+        #                   param.Simulation.img_size[0],
+        #                   param.Simulation.img_size[1]
+        # ]
+        
         """Forward the data"""
         y_out = model(x)
 
@@ -93,6 +100,7 @@ def test(model, loss, dataloader, epoch, device):
 
             """Ship the data to the correct device"""
             x, y_tar, weight = ship_device([x, y_tar, weight], device)
+            #print(x.shape)
 
             """
             Forward the data through the model.

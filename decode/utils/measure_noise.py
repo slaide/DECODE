@@ -10,23 +10,22 @@ from scipy import stats
 
 import pickle
 
-if __name__=="__main__":
-    as_photons:bool=True
-    show_bg:bool=True
-    normalize:bool=True
-    bin_width:float=0.3
-    max_x:float=200.0
-    binary_mask:bool=False
-    eval_580:bool=False #cherry (otherwise venus/515)
-    show_alignment:bool=False
-    i_threshold:int=5
+def measure_noise(as_photons:bool=True,
+    show_bg:bool=True,
+    normalize:bool=True,
+    bin_width:float=0.3,
+    max_x:float=200.0,
+    binary_mask:bool=False,
+    eval_580:bool=False, #cherry (otherwise venus/515),
+    show_alignment:bool=False,
+    i_display_threshold:int=5
+):
 
-    if eval_580:
-        labeled_mask:numpy.ndarray=read_img("brightness_reference/bg_only/Pos6/warped_dist_masks_580/dist_mask_00000043.tiff",from_dtype="u8",to_dtype="u8")
-        fluor_img:numpy.ndarray=read_img("brightness_reference/bg_only/Pos6/fluor_cropped_580/img_000000043.tiff",from_dtype="u16",to_dtype="u16")
-    else:
-        labeled_mask:numpy.ndarray=read_img("brightness_reference/bg_only/Pos6/warped_dist_masks/dist_mask_00000043.tiff",from_dtype="u8",to_dtype="u8")
-        fluor_img:numpy.ndarray=read_img("brightness_reference/bg_only/Pos6/fluor_cropped/img_000000043.tiff",from_dtype="u16",to_dtype="u16")
+    labeled_mask:numpy.ndarray=read_img(f"brightness_reference/bg_only_mock/Pos6/warped_dist_masks_{'580' if eval_580 else '515'}/dist_mask_00000000.tiff",from_dtype="u8",to_dtype="u8")
+    fluor_img:numpy.ndarray=read_img(f"brightness_reference/bg_only_mock/Pos6/fluor_cropped_{'580' if eval_580 else '515'}/img_000000000.tiff",from_dtype="u16",to_dtype="u16")
+
+    #labeled_mask:numpy.ndarray=read_img(f"experiments/experiment_00000002/Pos006/warped_dist_masks{'_580' if eval_580 else ''}/dist_mask_00000043.tiff",from_dtype="u8",to_dtype="u8")
+    #fluor_img:numpy.ndarray=read_img(f"experiments/experiment_00000002/Pos006/fluor_cropped{'_580' if eval_580 else ''}/img_000000043.tiff",from_dtype="u16",to_dtype="u16")
 
     if show_alignment:
         fluor_img[labeled_mask>0]=0
@@ -34,7 +33,7 @@ if __name__=="__main__":
         plt.imshow(fluor_img,cmap="gist_gray")
         plt.show()
 
-        raise Error
+        raise ValueError("premature termination, on purpose")
 
     assert labeled_mask.shape==fluor_img.shape
 
@@ -84,9 +83,6 @@ if __name__=="__main__":
         random_photons=numpy.random.poisson(lam=dist_fmean,size=pixels_at_dist.shape[0])
         random_photons=random_photons+numpy.random.normal(loc=0,scale=1.5,size=random_photons.shape) # read noise
 
-        if normalize and i>i_threshold: # remove indices that are known to have few values (which looks weird on the graph when normalized)
-            continue
-
         bins=numpy.arange(0,max_x,bin_width)
         hist=numpy.histogram(values,bins=bins,density=normalize)[0]
         hist_random=numpy.histogram(random_photons,bins=bins,density=normalize)[0]
@@ -101,11 +97,14 @@ if __name__=="__main__":
 
         hist_random=hist_random/hist_random.max()*hist.max()
 
-        plt.plot(bins[hist_not_zero],hist,color=colors[i%len(colors)],label=f"inside cell ({i} to outline)" if i>0 else "flowcell")
-        if False:
-            plt.plot(bins[hist_random>0],hist_random[hist_random>0],color=colors[i%len(colors)],label=f"inside cell ({i} to outline)" if i>0 else "flowcell",linestyle="dashed")
+        if normalize and i>i_display_threshold: # do not display data for indices that are known to have few values (which looks weird on the graph when normalized)
+            continue
         else:
-            plt.axvline(dist_fmean,color=colors[i%len(colors)],label=f"inside cell ({i}) - mean" if i>0 else "flowcell - mean",linestyle="dashed")
+            plt.plot(bins[hist_not_zero],hist,color=colors[i%len(colors)],label=f"inside cell ({i} to outline)" if i>0 else "flowcell")
+            if False:
+                plt.plot(bins[hist_random>0],hist_random[hist_random>0],color=colors[i%len(colors)],label=f"inside cell ({i} to outline)" if i>0 else "flowcell",linestyle="dashed")
+            else:
+                plt.axvline(dist_fmean,color=colors[i%len(colors)],label=f"inside cell ({i}) - mean" if i>0 else "flowcell - mean",linestyle="dashed")
 
             
     plt.title("histogram of (fluorescence) pixel values on flowcell and per distance to cell outline")
@@ -121,4 +120,24 @@ if __name__=="__main__":
     with open(file_name,"wb") as pickle_file:
         pickle.dump(background_distribution,pickle_file)
 
-    # for each level of edt, calc histogram over all fluorescence image pixel values (probably remove top and bottom 0.1 - 1%): min, max, avg -> correlation of avg edt ~ edt?
+if __name__=="__main__":
+    measure_noise(
+        as_photons=True,
+        show_bg=True,
+        normalize=True,
+        bin_width=0.3,
+        max_x=200.0,
+        binary_mask=False,
+        eval_580=False,
+        show_alignment=False,
+    )
+    measure_noise(
+        as_photons=True,
+        show_bg=True,
+        normalize=True,
+        bin_width=0.3,
+        max_x=200.0,
+        binary_mask=False,
+        eval_580=True,
+        show_alignment=False,
+    )

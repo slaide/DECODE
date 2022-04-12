@@ -292,7 +292,7 @@ class ParameterListTarget(TargetGenerator):
             n_emitter = len(em.get_subset_frame(i, i))
 
             if n_emitter > self.n_max:
-                raise ValueError("Number of actual emitters exceeds number of max. emitters.")
+                raise ValueError(f"Number of actual emitters exceeds number of max. emitters {n_emitter} > {self.n_max}.")
 
             mask_tar[i, :n_emitter] = 1
 

@@ -65,13 +65,13 @@ class LoadSaveModel:
             device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
         model = self.model
-        print('Model instantiated.')
+        #print('Model instantiated.')
         if self.warmstart_file is None:
             print('Model initialised as specified in the constructor.')
 
         else:
             hashv = hash_model(self.warmstart_file)
-            print(f'Model SHA-1 hash: {hashv}')
+            #print(f'Model SHA-1 hash: {hashv}')
             model.hash = hashv
 
             state_dict = torch.load(self.warmstart_file, map_location=device)

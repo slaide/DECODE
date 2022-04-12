@@ -293,7 +293,7 @@ class EmitterSet:
         Sets the attributes in the correct type and with default argument if None
         """
 
-        if xyz.dtype not in (torch.float, torch.double, torch.half):
+        if xyz.dtype not in (torch.float, torch.double, torch.half, torch.float32):
             raise ValueError("XYZ coordinates must be float type.")
         else:
             f_type = xyz.dtype

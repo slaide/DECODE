@@ -229,10 +229,6 @@ import numpy
 from scipy.io import loadmat
 
 class DiscreteEmitterIntensitySampler:
-    # the value sampled from the discrete distribution (from real experiments) seems to be a scaling value of the 'height' of the gaussian distribution that was approximated for emitters
-    # the psf simulation function expects this value to be the brightness of the whole area of the psf though, so we need to scale that
-    # this value is _very_ rough estimate
-    N_to_area:float=5.0 # was 20 at some point... who knows whats real
     
     # noise is required in case the photon counts at some point are not actually photon counts, but camera units
     def __init__(self,noise,path:str,p:str):
@@ -246,12 +242,12 @@ class DiscreteEmitterIntensitySampler:
         temp_intensity_scale_factor:float=1.0
 
         if p=="c":
-            photonCounts=mat["photonCountsC"]*DiscreteEmitterIntensitySampler.N_to_area
+            photonCounts=mat["photonCountsC"]
         else: # if p=="v":
-            photonCounts=mat["photonCountsV"]*DiscreteEmitterIntensitySampler.N_to_area
+            photonCounts=mat["photonCountsV"]
 
         self.max_brightness=10000 # manually filtered by konrad
-        self.max_brightness=self.max_brightness*DiscreteEmitterIntensitySampler.N_to_area
+        self.max_brightness=self.max_brightness
         num_bins=20000
 
         self.bin_max=self.max_brightness
@@ -286,7 +282,7 @@ class MaskedEmitterSampler:
     static emitters, frame dependent
     """
     def __init__(self, *, structure: structure_prior.CellMaskStructure, intensity_mu_sig: Union[Tuple[float,float],Tuple[str,str]],
-                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8,**kwargs):
+                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8,print_info:bool=True,**kwargs):
         """
 
         Args:
@@ -305,12 +301,16 @@ class MaskedEmitterSampler:
         self.intensity_mu_sig = intensity_mu_sig
         if isinstance(self.intensity_mu_sig[0],float):
             assert isinstance(self.intensity_mu_sig[1],float)
+            if print_info:
+                print("using 'normal distribution' emitter sampler")
             self.intensity_dist_type="normal"
             self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
                                                                     self.intensity_mu_sig[1])
         else:
             assert isinstance(self.intensity_mu_sig[0],str)
             assert isinstance(self.intensity_mu_sig[1],str)
+            if print_info:
+                print("using 'discrete distribution' emitter sampler")
             self.intensity_dist_type="discrete"
             self.intensity_dist=DiscreteEmitterIntensitySampler(kwargs["noise"],
                                                                 self.intensity_mu_sig[0],
@@ -330,7 +330,7 @@ class MaskedEmitterSampler:
         raise NotImplementedError
         #return self.sample()
 
-    def sample(self, mask:numpy.ndarray, frame_index_override:int=None) -> decode.generic.emitter.EmitterSet:
+    def sample(self, mask:numpy.ndarray, frame_index_override:int=None, fraction_emitters_above_zero:float=0.5, override_probs=None) -> decode.generic.emitter.EmitterSet:
         """
         Return sampled EmitterSet in the specified frame range.
 
@@ -340,7 +340,7 @@ class MaskedEmitterSampler:
         """
 
         # xyz coordinates of emitters
-        emitter_positions=self.structure.sample(mask=mask)
+        emitter_positions=self.structure.sample(mask=mask,per_cell=False,fraction_emitters_above_zero=fraction_emitters_above_zero,override_probs=override_probs)
 
         num_emitters=emitter_positions.shape[0]
 
@@ -349,6 +349,7 @@ class MaskedEmitterSampler:
         # (median) photon count per emitter
         intensity:torch.Tensor = torch.clamp(self.intensity_dist.sample((num_emitters,)), min=self.intensity_th)
         phot_:torch.Tensor=intensity # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?))
+        #print("mean emitter brightness:",phot_.mean())
         # frame index of emitters
         frame_ix_:torch.Tensor=torch.zeros((num_emitters,))
         # id of emitters
