@@ -10,7 +10,11 @@ input(f"press enter if you want to generate masks for '{experiment_dir}' : ")
 overwrite_data=input("overwrite previous masks? [yes/no] : ") in ("yes\n","yes","y","y\n")
 print(f"{'' if overwrite_data else 'not '}overwriting previous data")
 
-experiment_dir=Path(".")/experiment_dir
+if str(experiment_dir)[0]!="/":
+    experiment_dir=Path(".")/experiment_dir
+else:
+    experiment_dir=Path(experiment_dir)
+    
 assert experiment_dir.exists() and experiment_dir.is_dir()
 
 generate_cell_masks(experiment_dir,threshold=0.9,overwrite_data=overwrite_data,
