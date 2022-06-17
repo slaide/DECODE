@@ -140,11 +140,10 @@ def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False) 
                 assert num_fluorescence_images%num_cell_masks==0,f"{num_cell_masks} {num_fluorescence_images}"
                 
                 for image_index in range(0,num_cell_masks):
-                    #print(cell_masks[image_index*fluorescence_per_cell_mask])
                     cell_mask_image=read_img(cell_masks[image_index*fluorescence_per_cell_mask],from_dtype="u8",to_dtype="u8")
 
                     # TODO this is a very temporary solution!
-                    cell_mask_image=edt.edt(cell_mask_image, order='C', parallel=10).astype(dtype=numpy.uint8)
+                    cell_mask_image=edt.edt(cell_mask_image, order='C', parallel=0).astype(dtype=numpy.uint8)
 
                     yield cell_mask_image
 
@@ -364,10 +363,10 @@ class MaskedSimulation:
         return emitter_set, frames, frames_bg
 
     # static
-    num_emitters_brightness_tracked=1000
-    brightness_tracker=torch.zeros((num_emitters_brightness_tracked,))
-    num_tracked_brightness_values=0
     brightness_tracking_on=False
+    num_emitters_brightness_tracked=1000
+    brightness_tracker=torch.zeros((num_emitters_brightness_tracked,)) if brightness_tracking_on else None
+    num_tracked_brightness_values=0
 
     def forward(self, mask:numpy.ndarray, em: EmitterSet, device:Union[str,torch.device]="cpu") -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -382,23 +381,24 @@ class MaskedSimulation:
             torch.Tensor: background frames (e.g. to predict the bg seperately)
         """
 
-        frames:torch.Tensor = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=None, ix_high=None)
+        emitter_frames:torch.Tensor = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=None, ix_high=None)
 
-        if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values<MaskedSimulation.num_emitters_brightness_tracked:
-            MaskedSimulation.brightness_tracker[MaskedSimulation.num_tracked_brightness_values]=frames.sum()/em.phot.sum()
-            MaskedSimulation.num_tracked_brightness_values+=1
+        #if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values<MaskedSimulation.num_emitters_brightness_tracked:
+        #    MaskedSimulation.brightness_tracker[MaskedSimulation.num_tracked_brightness_values]=emitter_frames.sum()/em.phot.sum()
+        #    MaskedSimulation.num_tracked_brightness_values+=1
 
-            if MaskedSimulation.num_tracked_brightness_values==MaskedSimulation.num_emitters_brightness_tracked:
-                mean=MaskedSimulation.brightness_tracker.mean()
-                std_dev=((MaskedSimulation.brightness_tracker-mean)/MaskedSimulation.num_emitters_brightness_tracked).sum().sqrt().item()
-                #print(f"emitter brightness fraction mean (std dev): {mean:5.4f} ({std_dev:5.4f})") # should be pretty close to 1, but is not. no idea why
+        #    if MaskedSimulation.num_tracked_brightness_values==MaskedSimulation.num_emitters_brightness_tracked:
+        #        mean=MaskedSimulation.brightness_tracker.mean()
+        #        std_dev=((MaskedSimulation.brightness_tracker-mean)/MaskedSimulation.num_emitters_brightness_tracked).sum().sqrt().item()
+        #        #print(f"emitter brightness fraction mean (std dev): {mean:5.4f} ({std_dev:5.4f})") # should be pretty close to 1, but is not. no idea why
 
-        if isinstance(self.background,(decode.simulation.background.DiscreteBackground,decode.simulation.background.MaskedBackground)):
-            bg_frames=self.background.sample(mask=torch.from_numpy(mask),device=device)
-        else:
-            bg_frames=self.background.sample(mask.shape,device=device)
+        # bg_frames do not include camera noise ()
+        bg_frames=self.background.sample(mask=mask,device=device)
         
-        frames=self.noise.forward(frames+bg_frames)
+        # in decode, poisson noise is applied to background AND emitters
+        if False:
+            frames=self.noise.forward(self.noise.poisson.forward(bg_frames)+emitter_frames,sample_photons=False)
+        else:
+            frames=self.noise.forward(bg_frames+emitter_frames)
 
-        # yes, bg_frames does not include camera noise!
         return frames, bg_frames

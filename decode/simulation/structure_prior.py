@@ -150,8 +150,13 @@ class CellMaskStructure:
         else:
             probs=torch.tensor(override_probs)
 
-        num_emitters=torch.multinomial(probs,num_samples=len(cell_regions),replacement=True)
-        #print(num_emitters)
+        if probs.sum()>0:
+            num_emitters=torch.multinomial(probs,num_samples=len(cell_regions),replacement=True)
+            #print(num_emitters)
+        else:
+            num_emitters=torch.zeros((len(cell_regions),))
+            print(num_emitters.shape)
+            print(type(num_emitters[0]))
 
         # convert mask from numpy to torch for later functions that require torch tensor
         mask=skimage.img_as_float(mask)
@@ -183,56 +188,59 @@ class CellMaskStructure:
             cell_mask_nonzero_tuple=(cell_mask_nonzero_vector[:,0],cell_mask_nonzero_vector[:,1])
             cell_mask_weights=mask_snippet[cell_mask_nonzero_tuple]
 
-            num_emitters_in_this_cell=num_emitters[region_id]
-            emitter_coordinates=torch.zeros((num_emitters_in_this_cell,3))
-            # sample x/y coordinates from list of pixels inside cells, using the cell depth penetration value (term up for debate) as weight
-            emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
+            num_emitters_in_this_cell=num_emitters[region_id].item()
+            if num_emitters_in_this_cell>0:
+                emitter_coordinates=torch.zeros((num_emitters_in_this_cell,3))
+                # sample x/y coordinates from list of pixels inside cells, using the cell depth penetration value (term up for debate) as weight
+                emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
 
-            # sample z coordinate from some non-experimental distribution (because we dont have better data here)
-            # could multiply this with mask[emitter_coordinates] to actually sample from within the estimated cell body, though this might overfit the ai on data we _expect_ to be realistic (which e.g. also expects the segmentation mask to be perfect)
-            # better leave it as is to increase the variety of the training data
-            emitter_coordinates[:,2]=z_sampler.sample((num_emitters_in_this_cell,))
+                # sample z coordinate from some non-experimental distribution (because we dont have better data here)
+                # could multiply this with mask[emitter_coordinates] to actually sample from within the estimated cell body, though this might overfit the ai on data we _expect_ to be realistic (which e.g. also expects the segmentation mask to be perfect)
+                # better leave it as is to increase the variety of the training data
+                emitter_coordinates[:,2]=z_sampler.sample((num_emitters_in_this_cell,))
 
-            # offset coordinates for global (frame) placement (before this, the coordinates are in cell-local space)
-            emitter_coordinates[:,0]+=minr
-            emitter_coordinates[:,1]+=minc
+                # offset coordinates for global (frame) placement (before this, the coordinates are in cell-local space)
+                emitter_coordinates[:,0]+=minr
+                emitter_coordinates[:,1]+=minc
 
-            # if the coordinates are supposed to be returned grouped per cell, do so
-            if per_cell:
-                total_emitter_coordinates=torch.cat((total_emitter_coordinates,[emitter_coordinates]),0)
-            else:
-                total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
-        
-        # add a random sub-pixel offset
-        subpixel_offset_dist=torch.distributions.uniform.Uniform(-0.5,0.5)
-        total_emitter_coordinates[:,:2]+=subpixel_offset_dist.sample((total_emitter_coordinates.shape[0],2))
+                # if the coordinates are supposed to be returned grouped per cell, do so
+                if per_cell:
+                    total_emitter_coordinates=torch.cat((total_emitter_coordinates,[emitter_coordinates]),0)
+                else:
+                    total_emitter_coordinates=torch.cat((total_emitter_coordinates,emitter_coordinates),0)
 
-        # remove the emitters that have been sampled outside the image frame for some reason (should not be more than 1-2 per frame)
-        emitter_mask_outside_frame=(total_emitter_coordinates[:,0]>=0) & (total_emitter_coordinates[:,0]<mask.shape[0]) & (total_emitter_coordinates[:,1]>=0) & (total_emitter_coordinates[:,1]<mask.shape[1])
-        total_emitter_coordinates=total_emitter_coordinates[emitter_mask_outside_frame]
+        if len(total_emitter_coordinates)>0:
+            # add a random sub-pixel offset
+            subpixel_offset_dist=torch.distributions.uniform.Uniform(-0.5,0.5)
+            
+            total_emitter_coordinates[:,:2]+=subpixel_offset_dist.sample((total_emitter_coordinates.shape[0],2))
 
-        num_emitters=total_emitter_coordinates.shape[0]
-        z_above_zero_mask=total_emitter_coordinates[:,2]>0
+            # remove the emitters that have been sampled outside the image frame for some reason (should not be more than 1-2 per frame)
+            emitter_mask_outside_frame=(total_emitter_coordinates[:,0]>=0) & (total_emitter_coordinates[:,0]<mask.shape[0]) & (total_emitter_coordinates[:,1]>=0) & (total_emitter_coordinates[:,1]<mask.shape[1])
+            total_emitter_coordinates=total_emitter_coordinates[emitter_mask_outside_frame]
 
-        fraction_above_zero=z_above_zero_mask.sum()/num_emitters
+            num_emitters=total_emitter_coordinates.shape[0]
+            z_above_zero_mask=total_emitter_coordinates[:,2]>0
 
-        target_fraction=fraction_emitters_above_zero
-        missing_fraction=target_fraction-fraction_above_zero
+            fraction_above_zero=z_above_zero_mask.sum()/num_emitters
 
-        if missing_fraction>0:
-            indices_below_zero=numpy.arange(num_emitters)[~z_above_zero_mask]
-            if missing_fraction>=0.5:
-                to_be_flipped_indices=indices_below_zero
-            else:
-                to_be_flipped_indices=numpy.random.choice(indices_below_zero,size=int(missing_fraction*num_emitters),replace=False)
-        else:#missing_fraction<0
-            indices_above_zero=numpy.arange(num_emitters)[z_above_zero_mask]
-            if missing_fraction<=-0.5:
-                to_be_flipped_indices=indices_above_zero
-            else:
-                to_be_flipped_indices=numpy.random.choice(indices_above_zero,size=int(-missing_fraction*num_emitters),replace=False)
+            target_fraction=fraction_emitters_above_zero
+            missing_fraction=target_fraction-fraction_above_zero
 
-        total_emitter_coordinates[to_be_flipped_indices,2]*=-1.0
+            if missing_fraction>0:
+                indices_below_zero=numpy.arange(num_emitters)[~z_above_zero_mask]
+                if missing_fraction>=0.5:
+                    to_be_flipped_indices=indices_below_zero
+                else:
+                    to_be_flipped_indices=numpy.random.choice(indices_below_zero,size=int(missing_fraction*num_emitters),replace=False)
+            else:#missing_fraction<0
+                indices_above_zero=numpy.arange(num_emitters)[z_above_zero_mask]
+                if missing_fraction<=-0.5:
+                    to_be_flipped_indices=indices_above_zero
+                else:
+                    to_be_flipped_indices=numpy.random.choice(indices_above_zero,size=int(-missing_fraction*num_emitters),replace=False)
+
+            total_emitter_coordinates[to_be_flipped_indices,2]*=-1.0
 
         #print(f"target fraction emitters above zero: {target_fraction:.3f}, actual fraction: {((total_emitter_coordinates[:,2]>0).sum()/num_emitters):.3f}")
 

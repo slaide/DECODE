@@ -55,30 +55,10 @@ def setup_masked_simulation(param):
 
     """ background """
 
-    if param.Simulation.background.type=="uniform":
-        print(f"using {param.Simulation.background.type} background distribution")
+    bg=decode.simulation.background.DiscreteBackground.parse(param)
 
-        param.Simulation.bg_uniform=param.Simulation.background.range
-
-        bg=decode.simulation.background.UniformBackground.parse(param)
-
-    elif param.Simulation.background.type=="masked":
-        print(f"using {param.Simulation.background.type} background distribution")
-
-        bg_lower_bound=param.Simulation.background.flowcell if isinstance(param.Simulation.background.flowcell,(int,float)) else param.Simulation.background.flowcell[0]
-        bg_upper_bound=param.Simulation.background.cell if isinstance(param.Simulation.background.cell,(int,float)) else param.Simulation.background.cell[1]
-        param.Simulation.bg_uniform=(bg_lower_bound,bg_upper_bound+bg_lower_bound)# add for real upper bound because of MaskedBackground internals
-
-        bg=decode.simulation.background.MaskedBackground.parse(param)
-
-    elif param.Simulation.background.type=="discrete":
-        print(f"using {param.Simulation.background.type} background distribution")
-        
-        bg=decode.simulation.background.DiscreteBackground.parse(param)
-
-        param.Simulation.bg_uniform=bg._bg_uniform()
-    else:
-        raise ValueError("param.simulation,background.type must be in [uniform, masked, discrete]")
+    # TODO rescale input how?
+    param.Simulation.bg_uniform=bg._bg_uniform()
 
     """ noise model """
 

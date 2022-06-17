@@ -158,103 +158,46 @@ import skimage
 import numpy
 import matplotlib.pyplot as plt
 import pickle
+import edt
+import math
+from skimage import morphology
+from skimage import filters
+from skimage.measure import label,regionprops
 
 class DiscreteBackground:
-    def __init__(self,distribution:dict):
-        assert distribution["as_photons"]
-        assert isinstance(distribution["max_x"],float)
+    def __init__(self,environmental_background,mean_brightness_per_volume,gaussian_width):
+        self.environmental_background=environmental_background
+        self.mean_brightness_per_volume=mean_brightness_per_volume
+        self.gaussian_width=gaussian_width
 
-        max_dist_length=numpy.max([distribution[key].shape[0] for key in distribution if isinstance(key,int)])
-        num_i=len([key for key in distribution if isinstance(key,int)])
-        numpy_dist=numpy.zeros((num_i,max_dist_length))
+    # mask is binary
+    def sample(self, *, mask:numpy.ndarray, device:Union[torch.device,str]=torch.device('cpu')) -> torch.Tensor:
+        mask=morphology.remove_small_holes(mask>0,area_threshold=64) # arbitrary threshold, 64 is default
+        mask_edt=edt.edt(mask.astype(numpy.float32),parallel=0)
 
-        # make sure all distributions have same size (will with 0)
-        for key in distribution:
-            if not isinstance(key,int):
-                continue
+        for cell in regionprops(label(mask)):
+            minr, minc, maxr, maxc = cell.bbox
 
-            dist_at_key=distribution[key]
-            numpy_dist[key][0:dist_at_key.shape[0]]=dist_at_key
-            assert dist_at_key.sum()>0
+            snippet=mask_edt[minr:maxr,minc:maxc]
+            radius=snippet.max()
+            mask_edt[minr:maxr,minc:maxc]=numpy.sqrt(radius**2-(radius-snippet)**2)
 
-        self.distribution=torch.from_numpy(numpy_dist.astype(numpy.float32))
-        self.max_x=distribution["max_x"]
+        sampled_bg=mask_edt*self.mean_brightness_per_volume # TODO subtract the brightness from the dots from this mask (meaning multiply by a fraction so that sumOfCellBackgroundFluorescence+sumOfDotFluorescence=sumOfCellVolume*mean_brightness_per_volume, where mean_brightness_per_volume was measured in images where no fluorophore is bound to the chromosome)
+        sampled_bg+=self.environmental_background
 
-        self.means=[distribution[f"{i}_mean"] for i in range(0,num_i)]
+        sampled_bg=filters.gaussian(sampled_bg,self.gaussian_width)
 
-    def sample(self, *, mask:torch.Tensor, device:Union[torch.device,str]=torch.device('cpu')) -> torch.Tensor:
-        sampled_bg=torch.zeros(mask.shape,dtype=torch.float32,device="cpu")
-
-        mask_max=mask.max()
-        for i in range(0,mask_max+1):
-            sampled_distribution=self.distribution[i if self.distribution.shape[0]>i else (self.distribution.shape[0]-1),:]
-
-            mask_i=mask==i
-            num_samples=mask_i.sum()
-
-            #assert num_samples>0, f"i: {i}, max: {mask_max}"
-            if num_samples>0:
-                #print(f"{num_samples} {i}")
-                sampled_bg_at_i=torch.multinomial(sampled_distribution,num_samples=num_samples,replacement=True)
-                sampled_bg_at_i=sampled_bg_at_i.to(torch.float32)/sampled_distribution.shape[0]*self.max_x
-
-                sampled_bg[mask_i]=sampled_bg_at_i
-
-        return sampled_bg.to(device)
+        return torch.from_numpy(sampled_bg).to(device)
 
     def _bg_uniform(self):
-        mean_lower=float(self.means[0])
-        mean_upper=float(self.means[len(self.means)-1])
-        
-        return mean_lower,mean_upper
+        max_cell_radius=math.ceil(1/0.065/2)
+
+        return max_cell_radius*self.mean_brightness_per_volume
 
     @staticmethod
     def parse(param):
-        pickle_file_name=param.Simulation.background.distribution
-        with open(pickle_file_name,"rb") as pickle_file:
-            pickle_data=pickle.load(pickle_file)
-
-        return DiscreteBackground(pickle_data)
-
-class MaskedBackground:
-    """
-        combines two uniform backgrounds:
-        - one uniform (flowcell) background across the whole image
-        - one additional 'uniform' (cell) background, with different parameters, that is sampled in the areas of the image where a cell is visible
-    """
-
-    def __init__(self, flowcell_background, cell_background):
-        """
-        setup different background samplers for flowcell background, and cell background, which are combined during sampling
-        """
-
-        if flowcell_background is None or cell_background is None:
-            raise ValueError("flowcell and cell background need to be specified (seperately)!")
-
-        self.flowcell_background=UniformBackground(bg_uniform=flowcell_background,forward_return="like")
-        self.cell_background=UniformBackground(bg_uniform=cell_background,forward_return="like")
-
-    @staticmethod
-    def parse(param):
-        return MaskedBackground(param.Simulation.background.flowcell, param.Simulation.background.cell)
-
-    def sample(self, *, mask:torch.Tensor, device:Union[torch.device,str]=torch.device('cpu')):
-        if isinstance(device,str):
-            device=torch.device(device)
-
-        flowcell_background = self.flowcell_background.sample(mask.shape,device)
-        cell_background     = self.cell_background.sample(mask.shape,device)
-
-        mask_float32=mask.to(dtype=torch.float32)
-        mf32_max=mask_float32.max()
-        mask_float32/=mf32_max
-        #assert (mask_float32.min())<1e-6,"flowcell areas in the mask should have value 0. no flowcell area in mask detected."
-
-        cell_background*=mask_float32
-
-        # print(f"{cell_background.dtype} {cell_background.min():4.2f} {cell_background.max():4.2f}")
-        # print(f"{flowcell_background.dtype} {flowcell_background.min():4.2f} {flowcell_background.max():4.2f}")
-
-        background=flowcell_background + cell_background
-
-        return background
+        return DiscreteBackground(
+            param.Simulation.background.environmental_background,
+            param.Simulation.background.mean_brightness_per_volume,
+            param.Simulation.background.gaussian_width
+        )

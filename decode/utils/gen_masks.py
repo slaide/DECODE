@@ -3,7 +3,7 @@ import skimage.io
 from skimage.measure import regionprops
 
 import numpy
-import numpy as np
+from numpy.random import default_rng
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -24,6 +24,8 @@ from decode.utils.img_file_io import read_img, write_img
 
 from time import perf_counter
 from tqdm import tqdm
+
+numpy_rng=default_rng(seed=3339337589)
 
 """ iterable structure to load data into a network """
 class SegmentDirectory(Dataset):
@@ -235,7 +237,7 @@ def generate_cell_masks(root_folder:str,fluo_roi:Tuple[Tuple[float,float],Tuple[
                     phase_contrast_image=read_img(phase_contrast_image_path,from_dtype="u16",to_dtype="float32")
                     
                     # add a small bit of noise on top of the phase contrast image to avoid multiple issues with the segmentation mask (holes, dents, splits)
-                    phase_contrast_image_noisy=phase_contrast_image+numpy.random.normal(scale=0.03,size=phase_contrast_image.shape).astype(dtype=numpy.float32)
+                    phase_contrast_image_noisy=phase_contrast_image+numpy_rng.normal(scale=0.03,size=phase_contrast_image.shape).astype(dtype=numpy.float32)
                     phase_contrast_image_noisy=phase_contrast_image_noisy.clip(0.0,1.0) # clip to [0.0,1.0] range because added noise might exceed 1.0
                     
                     write_img(phase_contrast_image_noisy_path,phase_contrast_image_noisy,from_dtype="float32",as_dtype="u16")

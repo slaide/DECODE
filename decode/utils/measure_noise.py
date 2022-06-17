@@ -10,43 +10,32 @@ from scipy import stats
 
 import pickle
 
-def measure_noise(as_photons:bool=True,
-    show_bg:bool=True,
-    normalize:bool=True,
-    bin_width:float=0.3,
-    max_x:float=200.0,
-    binary_mask:bool=False,
+# calculate and save to file, the background noise as measured from real reference images
+def measure_noise(
+    as_photons:bool=True, # save result in photon units (not camera units), so that it can be sampled directly
+    normalize:bool=True, # normalize area below curve to 1 for plotting
+    bin_width:float=0.3, # bin values for discretization (from arguably already discrete brightness values measured..)
+    max_x:float=200.0, # max brightness of range that is saved to disk (is asserted to actually be at least as large as real max brightness)
     eval_580:bool=False, #cherry (otherwise venus/515),
-    show_alignment:bool=False,
     i_display_threshold:int=5
 ):
+    # a set of images from a brightness reference measurement experiment
+    labeled_mask:numpy.ndarray=read_img(f"/mnt/big_data/code/test_decode/brightness_reference/bg_only_mock/Pos6/warped_dist_masks_{'580' if eval_580 else '515'}/dist_mask_00000000.tiff",from_dtype="u8",to_dtype="u8")
+    fluor_img:numpy.ndarray=read_img(f"/mnt/big_data/code/test_decode/brightness_reference/bg_only_mock/Pos6/fluor_cropped_{'580' if eval_580 else '515'}/img_000000000.tiff",from_dtype="u16",to_dtype="u16")
 
-    labeled_mask:numpy.ndarray=read_img(f"brightness_reference/bg_only_mock/Pos6/warped_dist_masks_{'580' if eval_580 else '515'}/dist_mask_00000000.tiff",from_dtype="u8",to_dtype="u8")
-    fluor_img:numpy.ndarray=read_img(f"brightness_reference/bg_only_mock/Pos6/fluor_cropped_{'580' if eval_580 else '515'}/img_000000000.tiff",from_dtype="u16",to_dtype="u16")
-
+    # a set of images from a real (?) experiment, including dots (probably not useful for background brightness measurement)
     #labeled_mask:numpy.ndarray=read_img(f"experiments/experiment_00000002/Pos006/warped_dist_masks{'_580' if eval_580 else ''}/dist_mask_00000043.tiff",from_dtype="u8",to_dtype="u8")
     #fluor_img:numpy.ndarray=read_img(f"experiments/experiment_00000002/Pos006/fluor_cropped{'_580' if eval_580 else ''}/img_000000043.tiff",from_dtype="u16",to_dtype="u16")
-
-    if show_alignment:
-        fluor_img[labeled_mask>0]=0
-
-        plt.imshow(fluor_img,cmap="gist_gray")
-        plt.show()
-
-        raise ValueError("premature termination, on purpose")
 
     assert labeled_mask.shape==fluor_img.shape
 
     labeled_mask=labeled_mask>0
 
-    if binary_mask:
-        dist_mask=labeled_mask
-    else:
-        dist_mask = edt.edt(labeled_mask, order='C', parallel=10)
+    dist_mask = edt.edt(labeled_mask, order='C', parallel=10)
     dist_mask=dist_mask.astype(dtype=numpy.uint8)
 
     if as_photons:
-        param = decode.utils.param_io.ParamHandling().load_params("konrads_params.yaml")
+        param = decode.utils.param_io.ParamHandling().load_params("/mnt/big_data/code/test_decode/konrads_params.yaml")
         camera = decode.simulation.camera.Photon2Camera.parse(param)
         fluor_img=camera.backward(torch.from_numpy(fluor_img.astype(dtype=numpy.int32)), device='cpu').numpy()
         # rescale x-axis appropriately
@@ -56,6 +45,8 @@ def measure_noise(as_photons:bool=True,
     fmean=fluor_img.mean()
     fmax=fluor_img.max()
 
+    assert fmax<=max_x,f"{fmax} - {max_x}"
+
     #print(f"min,mean,max: {fmin, fmean, fmax}")
     print(f"bg fraction {fluor_img[dist_mask==0].reshape((-1,)).shape[0]/(labeled_mask.shape[0]*labeled_mask.shape[1])}")
 
@@ -64,9 +55,6 @@ def measure_noise(as_photons:bool=True,
     plt.figure(figsize=(20,10))
     colors=["red","blue","pink","purple","black","green","magenta"]
     for i in range(dist_mask.min(),dist_mask.max()+1):
-        if i==0 and not show_bg:
-            continue
-        
         pixels_at_dist=fluor_img[dist_mask==i].reshape((-1,))
 
         dist_fmin=pixels_at_dist.min()
@@ -116,28 +104,23 @@ def measure_noise(as_photons:bool=True,
     plt.tight_layout()
     plt.show()
 
-    file_name=f"background_distribution_{'580' if eval_580 else '515'}.pickle"
+    file_name=f"/mnt/big_data/code/test_decode/background_distribution_{'580' if eval_580 else '515'}.pickle"
     with open(file_name,"wb") as pickle_file:
         pickle.dump(background_distribution,pickle_file)
 
 if __name__=="__main__":
+    # measure noise for venus first, then for cherry
     measure_noise(
         as_photons=True,
-        show_bg=True,
         normalize=True,
         bin_width=0.3,
-        max_x=200.0,
-        binary_mask=False,
-        eval_580=False,
-        show_alignment=False,
+        max_x=400.0,
+        eval_580=False, # False => venus
     )
     measure_noise(
         as_photons=True,
-        show_bg=True,
         normalize=True,
         bin_width=0.3,
-        max_x=200.0,
-        binary_mask=False,
-        eval_580=True,
-        show_alignment=False,
+        max_x=400.0,
+        eval_580=True, # True => cherry
     )

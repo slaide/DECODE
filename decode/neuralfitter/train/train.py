@@ -73,28 +73,14 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
 
     """Load Parameters and back them up to the network output directory"""
     param_file = Path(param_file)
-    param = decode.utils.param_io.ParamHandling().load_params(param_file)
+    param = decode.utils.param_io.ParamHandling().load_params(str(param_file))
 
     # setup simulation out of order here because parameters required for auto_scaling are derived here
-    if param.Simulation.type=="random":
-        print(f"using {param.Simulation.type} simulation")
-        param.Simulation.psf_extent[0][1]=param.Simulation.img_size[0]
-        param.Simulation.psf_extent[1][1]=param.Simulation.img_size[1]
-        param.Simulation.lifetime_avg=param.Simulation.lifetime_avg or 1.0
+    assert param.Simulation.type=="masked"
+    print(f"using {param.Simulation.type} simulation")
+    sim_train, sim_test = setup_masked_simulation(param)
 
-        param.TestSet.frame_extent=param.Simulation.psf_extent
-        param.TestSet.img_size=param.Simulation.img_size
-
-        param.Simulation.emitter_extent[0]=param.Simulation.psf_extent[0]
-        param.Simulation.emitter_extent[1]=param.Simulation.psf_extent[1]
-
-        sim_train, sim_test = setup_random_simulation(param)
-    elif param.Simulation.type=="masked":
-        print(f"using {param.Simulation.type} simulation")
-        sim_train, sim_test = setup_masked_simulation(param)
-    else:
-        raise ValueError
-
+    # this should be the case (assertion pending)
     if sim_train.em_sampler.intensity_dist_type=="discrete":
         param.Simulation.intensity_mu_sig=sim_train.em_sampler._intensity_mu_sig()
 

@@ -229,9 +229,10 @@ import numpy
 from scipy.io import loadmat
 
 class DiscreteEmitterIntensitySampler:
-    
-    # noise is required in case the photon counts at some point are not actually photon counts, but camera units
-    def __init__(self,noise,path:str,p:str):
+    def __init__(self,
+        path:str,
+        p:str
+    ):
         self.path=path
 
         mat=loadmat(path)
@@ -270,8 +271,11 @@ class DiscreteEmitterIntensitySampler:
 
     def sample(self,shape:tuple):
         assert len(shape)==1
-        intensities=torch.multinomial(self.intensity_dist,num_samples=shape[0],replacement=True)+self.bin_min
-        intensities=intensities*self.bin_step
+        if shape[0]>0:
+            intensities=torch.multinomial(self.intensity_dist,num_samples=shape[0],replacement=True)+self.bin_min
+            intensities=intensities*self.bin_step
+        else:
+            intensities=torch.zeros((shape[0],))
 
         return intensities
 
@@ -312,8 +316,7 @@ class MaskedEmitterSampler:
             if print_info:
                 print("using 'discrete distribution' emitter sampler")
             self.intensity_dist_type="discrete"
-            self.intensity_dist=DiscreteEmitterIntensitySampler(kwargs["noise"],
-                                                                self.intensity_mu_sig[0],
+            self.intensity_dist=DiscreteEmitterIntensitySampler(self.intensity_mu_sig[0],
                                                                 self.intensity_mu_sig[1])
 
         self.intensity_th = intensity_th
@@ -347,7 +350,13 @@ class MaskedEmitterSampler:
         self.em_avg=num_emitters # required by neuralfitter.train.live_engine_setup
 
         # (median) photon count per emitter
+
         intensity:torch.Tensor = torch.clamp(self.intensity_dist.sample((num_emitters,)), min=self.intensity_th)
+        #intensity=torch.ones_like(intensity)*1500
+
+        # replacing the realistic distribution above with something more uniform to possibly iron out some of the issues present at low emitter brightness value may look like the line below:
+        # intensity:torch.Tensor = torch.distributions.uniform.Uniform(0.,1e5).sample((num_emitters,))
+        
         phot_:torch.Tensor=intensity # not 100% sure about the correlation of intensity and photon flux/count.. (flux is per time-unit, sure, but still..?))
         #print("mean emitter brightness:",phot_.mean())
         # frame index of emitters
