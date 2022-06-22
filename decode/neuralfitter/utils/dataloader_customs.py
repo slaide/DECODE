@@ -1,6 +1,14 @@
 import torch
 import torch.utils.data
-from torch._six import container_abcs, string_classes, int_classes
+from torch._six import string_classes
+import sys
+if sys.version_info>=(3,8,0):
+    # solutions from stack overflow
+    import collections.abc as container_abcs
+    # this one was mentioned in the pytorch forums, then on stackoverflow
+    int_classes=int
+else:
+    from torch._six import container_abcs, int_classes
 
 import decode.generic
 

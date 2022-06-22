@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple, Union
 
 import numpy as np
-import spline  # cubic spline implementation
+import decode.simulation.spline as spline # cubic spline implementation
 import torch
 
 from decode.generic import slicing as gutil
