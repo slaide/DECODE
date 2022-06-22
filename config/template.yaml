@@ -1,6 +1,6 @@
 # run the notebooks with:
   # $ conda activate decode_env
-  # $ python -m decode.neuralfitter.train.live_engine -p [path to your params].yaml
+  # $ python -m decode.neuralfitter.train.live_engine -p [path to params].yaml
 
 # to setup use of forked decode
 #   install conda decode_env, according to regular DECODE instructions

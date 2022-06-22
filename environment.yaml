@@ -41,6 +41,9 @@ dependencies:
   - tensorboard
   - tifffile>=2020.2
   - tqdm
+  - torchvision
+  - opencv-python
+  - edt
 
   # add kernel to jupyter
   - ipykernel

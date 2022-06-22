@@ -40,6 +40,9 @@ requirements:
     - tensorboard
     - tifffile>=2021.1
     - tqdm
+    - torchvision
+    - opencv-python
+    - edt
 
   test:
     imports:

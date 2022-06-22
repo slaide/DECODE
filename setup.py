@@ -37,7 +37,10 @@ else:
         "tensorboard",
         "tifffile",
         "tqdm",
-        ]
+        "torchvision",
+        "opencv-python",
+        "edt",
+    ]
 
 setup(
     name='decode',
