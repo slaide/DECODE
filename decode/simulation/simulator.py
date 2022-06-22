@@ -168,7 +168,7 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, full_frame_psf:bool=False, device:Union[str,torch.device]="cpu"):
+    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, device:Union[str,torch.device]="cpu"):
         """
         Init Simulation.
 
@@ -189,18 +189,14 @@ class MaskedSimulation:
 
         self.root_experiments_folder=root_experiments_folder if isinstance(root_experiments_folder,Path) else Path(root_experiments_folder)
         self.frame_size=frame_size
-        #print(f"frame_size={self.frame_size}")
         self.mask_sampler=sample_cell_masks(self.root_experiments_folder,also_yield_fluorescence=False)
 
         self.snippet_buffer=None
         self.snippet_buffer_bg=None
 
-        self.full_frame_psf=full_frame_psf
-
         self.device=device
 
     def sample_full_frame(self,fraction_emitters_above_zero:float=0.5,override_probs=None):
-        assert self.full_frame_psf
 
         # try sampling cell mask. if (internal) iteration stops, restart
         mask_sampler_result=self.mask_sampler.__next__()
@@ -254,11 +250,7 @@ class MaskedSimulation:
             single_frame_emitter_set = self.em_sampler.sample(mask)
 
             # forward emitter position through image simulation pipeline
-            if self.full_frame_psf:
-                # this takes 2/3 of the total time
-                #timer=perf_counter()
-                frames, frames_bg = self.forward(mask, single_frame_emitter_set, device=self.device)
-                ##time_passed+=perf_counter()-timer
+            frames, frames_bg = self.forward(mask, single_frame_emitter_set, device=self.device)
 
             dim_0_snippet_count=mask.shape[0]//self.frame_size[0]
             dim_1_snippet_count=mask.shape[1]//self.frame_size[1]
@@ -268,90 +260,54 @@ class MaskedSimulation:
             accept_empty_frames=True
             accept_partial_frames=True
 
-            #this takes 19s
-            if not self.full_frame_psf:
-                for i_i,i in enumerate(range(0,mask.shape[0],self.frame_size[0])):
-                    if snippets_returned==self.num_frames:
-                        break
+            indices_i=numpy.arange(0,mask.shape[0],self.frame_size[0])
+            indices_j=numpy.arange(0,mask.shape[1],self.frame_size[1])
 
-                    for j_i,j in enumerate(range(0,mask.shape[1],self.frame_size[1])):
-                        if snippets_returned==self.num_frames:
-                            break
+            indices=numpy.zeros((indices_i.shape[0]*indices_j.shape[0],2),dtype=numpy.int)
 
-                        current_total_snippet_index=i_i*dim_1_snippet_count+j_i
+            indices[:,0]=numpy.repeat(indices_i,indices_j.shape[0])
+            indices[:,1]=numpy.repeat([indices_j],indices_i.shape[0],axis=0).flatten()
 
-                        if i+self.frame_size[0] <= mask.shape[0] and j+self.frame_size[1] <= mask.shape[1]:
-                            single_frame_emitter_subset=single_frame_emitter_set.emitters_in_region(ax0=(i,i+self.frame_size[0]),ax1=(j,j+self.frame_size[1])).clone()
+            xyz_coords=single_frame_emitter_set.xyz_px # x is large axis, y is short axis, in mask axis 0 is the large one, and axis 1 is the short one, too
 
-                            if len(single_frame_emitter_subset)>0:
-                                single_frame_emitter_subset.xyz_px[:,0]-=i
-                                single_frame_emitter_subset.xyz_px[:,1]-=j
+            digits_i=numpy.digitize(xyz_coords[:,0],numpy.arange(0,mask.shape[0]+self.frame_size[0],self.frame_size[0],dtype=numpy.float32))-1
+            digits_j=numpy.digitize(xyz_coords[:,1],numpy.arange(0,mask.shape[1]+self.frame_size[1],self.frame_size[1],dtype=numpy.float32))-1
 
-                                # forward emitter position through image simulation pipeline
-                                if self.full_frame_psf:
-                                    snippets[:,snippets_returned,:,:]=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
-                                else:
-                                    frames, frames_bg = self.forward(mask[i:i+self.frame_size[0],j:j+self.frame_size[1]], single_frame_emitter_subset, device=self.device)
-                                    snippets[:,snippets_returned,:,:]=frames
+            frame_indices=digits_i*indices_j.shape[0]+digits_j
 
-                                single_frame_emitter_subset.frame_ix[:]=snippets_returned
+            single_frame_emitter_set.xyz_px[:,:2]-=indices[frame_indices].astype(numpy.float32)
 
-                                if not emitter_set is None:
-                                    emitter_set+=single_frame_emitter_subset
-                                else:
-                                    emitter_set=single_frame_emitter_subset
+            assert single_frame_emitter_set.xyz_px[:,0].min()>=0
+            assert single_frame_emitter_set.xyz_px[:,1].min()>=0
+            assert single_frame_emitter_set.xyz_px[:,0].max()<=self.frame_size[0]
+            assert single_frame_emitter_set.xyz_px[:,1].max()<=self.frame_size[1]
 
-                                snippets_returned+=1
-            #this takes 0.4s
+            hist,_bins=numpy.histogram(frame_indices,bins=numpy.arange(0,indices.shape[0]+1))
+            mask=hist==0
+            offset=numpy.add.accumulate(mask)
+            frame_indices_adjusted=frame_indices if accept_empty_frames else frame_indices-offset[frame_indices] # for f in sorted(unique(frame_indices)): s=sum(sorted(unique(frame_indices))<f) ; frame_indices[frame_indices==f]-=s; endif
+
+            single_frame_emitter_set.frame_ix=torch.from_numpy(frame_indices_adjusted+snippets_returned)
+
+            if emitter_set is None:
+                emitter_set=single_frame_emitter_set
             else:
-                indices_i=numpy.arange(0,mask.shape[0],self.frame_size[0])
-                indices_j=numpy.arange(0,mask.shape[1],self.frame_size[1])
+                emitter_set+=single_frame_emitter_set
 
-                indices=numpy.zeros((indices_i.shape[0]*indices_j.shape[0],2),dtype=numpy.int)
+            # this could probably be made even faster by broadcasting the frame, but i cannot be asked (also, may increase ram usage by several megabytes.. (~1MB per frame * 15*10 snippets per frame -> ~1.5GB))
+            for f,h in enumerate(hist):
+                if accept_empty_frames or h>0:
+                    i,j=indices[f]
+                    next_snippet=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
 
-                indices[:,0]=numpy.repeat(indices_i,indices_j.shape[0])
-                indices[:,1]=numpy.repeat([indices_j],indices_i.shape[0],axis=0).flatten()
+                    if accept_partial_frames or (next_snippet.shape[1]==self.frame_size[0] and next_snippet.shape[2]==self.frame_size[1]):
+                        snippets[:,snippets_returned,:next_snippet.shape[1],:next_snippet.shape[2]]=next_snippet
+                        snippets_returned+=1
 
-                xyz_coords=single_frame_emitter_set.xyz_px # x is large axis, y is short axis, in mask axis 0 is the large one, and axis 1 is the short one, too
-
-                digits_i=numpy.digitize(xyz_coords[:,0],numpy.arange(0,mask.shape[0]+self.frame_size[0],self.frame_size[0],dtype=numpy.float32))-1
-                digits_j=numpy.digitize(xyz_coords[:,1],numpy.arange(0,mask.shape[1]+self.frame_size[1],self.frame_size[1],dtype=numpy.float32))-1
-
-                frame_indices=digits_i*indices_j.shape[0]+digits_j
-
-                single_frame_emitter_set.xyz_px[:,:2]-=indices[frame_indices].astype(numpy.float32)
-
-                assert single_frame_emitter_set.xyz_px[:,0].min()>=0
-                assert single_frame_emitter_set.xyz_px[:,1].min()>=0
-                assert single_frame_emitter_set.xyz_px[:,0].max()<=self.frame_size[0]
-                assert single_frame_emitter_set.xyz_px[:,1].max()<=self.frame_size[1]
-
-                hist,_bins=numpy.histogram(frame_indices,bins=numpy.arange(0,indices.shape[0]+1))
-                mask=hist==0
-                offset=numpy.add.accumulate(mask)
-                frame_indices_adjusted=frame_indices if accept_empty_frames else frame_indices-offset[frame_indices] # for f in sorted(unique(frame_indices)): s=sum(sorted(unique(frame_indices))<f) ; frame_indices[frame_indices==f]-=s; endif
-
-                single_frame_emitter_set.frame_ix=torch.from_numpy(frame_indices_adjusted+snippets_returned)
-
-                if emitter_set is None:
-                    emitter_set=single_frame_emitter_set
-                else:
-                    emitter_set+=single_frame_emitter_set
-
-                # this could probably be made even faster by broadcasting the frame, but i cannot be asked (also, may increase ram usage by several megabytes.. (~1MB per frame * 15*10 snippets per frame -> ~1.5GB))
-                for f,h in enumerate(hist):
-                    if accept_empty_frames or h>0:
-                        i,j=indices[f]
-                        next_snippet=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
-
-                        if accept_partial_frames or (next_snippet.shape[1]==self.frame_size[0] and next_snippet.shape[2]==self.frame_size[1]):
-                            snippets[:,snippets_returned,:next_snippet.shape[1],:next_snippet.shape[2]]=next_snippet
-                            snippets_returned+=1
-
-                            if snippets_returned>=self.num_frames:
-                                break
-                        elif not accept_partial_frames:
-                            raise ValueError("unimplemented") # need to adjust frame_ix
+                        if snippets_returned>=self.num_frames:
+                            break
+                    elif not accept_partial_frames:
+                        raise ValueError("unimplemented") # need to adjust frame_ix
 
         frames=snippets[0,:,:,:]
         frames_bg=snippets[1,:,:,:]

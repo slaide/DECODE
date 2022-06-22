@@ -286,7 +286,7 @@ class MaskedEmitterSampler:
     static emitters, frame dependent
     """
     def __init__(self, *, structure: structure_prior.CellMaskStructure, intensity_mu_sig: Union[Tuple[float,float],Tuple[str,str]],
-                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8,print_info:bool=True,**kwargs):
+                num_frames: int, xy_unit: str, px_size: Tuple[float, float], intensity_th:float = 1e-8):
         """
 
         Args:
@@ -304,17 +304,15 @@ class MaskedEmitterSampler:
         self.num_frames = num_frames
         self.intensity_mu_sig = intensity_mu_sig
         if isinstance(self.intensity_mu_sig[0],float):
+            assert False
+
             assert isinstance(self.intensity_mu_sig[1],float)
-            if print_info:
-                print("using 'normal distribution' emitter sampler")
             self.intensity_dist_type="normal"
             self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
                                                                     self.intensity_mu_sig[1])
         else:
             assert isinstance(self.intensity_mu_sig[0],str)
             assert isinstance(self.intensity_mu_sig[1],str)
-            if print_info:
-                print("using 'discrete distribution' emitter sampler")
             self.intensity_dist_type="discrete"
             self.intensity_dist=DiscreteEmitterIntensitySampler(self.intensity_mu_sig[0],
                                                                 self.intensity_mu_sig[1])
@@ -373,14 +371,13 @@ class MaskedEmitterSampler:
         return EmitterSet(emitter_positions, phot_, frame_ix_.long(), id_.long(), xy_unit=self.xy_unit, px_size=self.px_size) # px_size is not well documented. _should_ be nanometer per side?
 
     @classmethod
-    def parse(cls, param, structure, num_frames: int,**kwargs):
+    def parse(cls, param, structure, num_frames: int):
         return cls(structure=structure,
                    intensity_mu_sig=param.Simulation.intensity_mu_sig,
                    xy_unit="px",
                    px_size=param.Camera.px_size,
                    num_frames=num_frames,
-                   intensity_th=param.Simulation.intensity_th or 1e-8,
-                   **kwargs)
+                   intensity_th=param.Simulation.intensity_th or 1e-8)
 
     # fake a normal distribution for network input scaling
     def _intensity_mu_sig(self):

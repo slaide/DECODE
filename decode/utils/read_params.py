@@ -1,0 +1,31 @@
+from pathlib import Path
+from typing import Union
+
+import decode
+from decode.utils.types import RecursiveNamespace
+
+def read_params(path:Union[str,Path]):
+  if isinstance(path,str):
+    path=Path(path)
+
+  assert path.exists()
+  assert path.suffix in (".yaml",".yml")
+
+  param=decode.utils.param_io.load_params(str(path))
+
+  param.Simulation.fluo_roi=(param.Simulation.emitter_extent[0],param.Simulation.emitter_extent[1])
+  param.Simulation.psf_extent=(
+    (
+      param.Simulation.fluo_roi[1][1] - param.Simulation.fluo_roi[1][0]
+    ),(
+      param.Simulation.fluo_roi[0][1] - param.Simulation.fluo_roi[0][0]
+    )
+  )
+
+  # this needs to be specified to allow setting img_size to something other than 40x40
+  if "img_size" not in param.keys():
+    param.TestSet.img_size=param.Simulation.img_size
+  if "frame_extent" not in param.keys():
+    param.TestSet.frame_extent=((0,param.Simulation.img_size[0]),(0,param.Simulation.img_size[1]))
+
+  return param

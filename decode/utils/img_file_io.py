@@ -85,4 +85,4 @@ def write_img(path,img_data:numpy.ndarray,from_dtype:str="float32",as_dtype:str=
     else:
         raise Error()
 
-    skimage.io.imsave(str(path), img_data, plugin='tifffile', compress = 6, check_contrast=False)
+    skimage.io.imsave(str(path), img_data, plugin='tifffile', compression = "zlib", check_contrast=False)
