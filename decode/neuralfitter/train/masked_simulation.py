@@ -60,9 +60,9 @@ def setup_masked_simulation(param):
     psf = decode.utils.calibration_io.SMAPSplineCoefficient(
         calib_file=param.InOut.calibration_file
     ).init_spline(
-        xextent=(0,param.Simulation.psf_extent[0]),
-        yextent=(0,param.Simulation.psf_extent[1]),
-        img_shape=param.Simulation.psf_extent, # img_shape and psf_extent are always equal
+        xextent=param.Simulation.psf_extent_img[0],
+        yextent=param.Simulation.psf_extent_img[1],
+        img_shape=(param.Simulation.psf_extent_img[0][1],param.Simulation.psf_extent_img[1][1]), # img_shape and psf_extent are always equal
         device=param.Hardware.device_simulation,
         roi_size=param.Simulation.roi_size,
         roi_auto_center=param.Simulation.roi_auto_center
@@ -94,7 +94,7 @@ def setup_masked_simulation(param):
 
     frame_size_fraction=(param.Simulation.img_size[0]*param.Simulation.img_size[1])/(40*40) # rescale <brightness threshold, other things> to match new image size (more precisely, brightness seems to be distributed across all emitters, not across the whole frame, so this parameter should better be rescaled with the [average] number of emitters per frame, though this number is proportional to the frame size)
     param.PostProcessingParam.raw_th/=frame_size_fraction
-    param.HyperParameter.max_number_targets=int(param.HyperParameter.max_number_targets*frame_size_fraction)
     param.Simulation.emitter_av*=frame_size_fraction # probably not required
+    param.HyperParameter.max_number_targets=int(param.HyperParameter.max_number_targets*param.Simulation.emitter_av)
 
     return simulation_train, simulation_test

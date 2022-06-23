@@ -147,6 +147,7 @@ class CellMaskStructure:
         # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
         if override_probs is None:
             probs=torch.tensor([0.0,1.8,1.7,0.0,0.1])
+            probs=torch.tensor([0.0,1.0,1.0,1.0,1.5,0.5,0.5,0.5,1.5,0.5,1.0,1.0])
         else:
             probs=torch.tensor(override_probs)
 
