@@ -320,7 +320,7 @@ class MaskedSimulation:
 
     # static
     brightness_tracking_on=False
-    num_emitters_brightness_tracked=1000
+    num_emitters_brightness_tracked=100
     brightness_tracker=torch.zeros((num_emitters_brightness_tracked,)) if brightness_tracking_on else None
     num_tracked_brightness_values=0
 
@@ -337,16 +337,21 @@ class MaskedSimulation:
             torch.Tensor: background frames (e.g. to predict the bg seperately)
         """
 
+
         emitter_frames:torch.Tensor = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=None, ix_high=None)
 
-        #if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values<MaskedSimulation.num_emitters_brightness_tracked:
-        #    MaskedSimulation.brightness_tracker[MaskedSimulation.num_tracked_brightness_values]=emitter_frames.sum()/em.phot.sum()
-        #    MaskedSimulation.num_tracked_brightness_values+=1
+        if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values < MaskedSimulation.num_emitters_brightness_tracked:
+            s1=emitter_frames.sum().item()
+            s2=em.phot.sum().item()
 
-        #    if MaskedSimulation.num_tracked_brightness_values==MaskedSimulation.num_emitters_brightness_tracked:
-        #        mean=MaskedSimulation.brightness_tracker.mean()
-        #        std_dev=((MaskedSimulation.brightness_tracker-mean)/MaskedSimulation.num_emitters_brightness_tracked).sum().sqrt().item()
-        #        #print(f"emitter brightness fraction mean (std dev): {mean:5.4f} ({std_dev:5.4f})") # should be pretty close to 1, but is not. no idea why
+            MaskedSimulation.brightness_tracker[MaskedSimulation.num_tracked_brightness_values]=s1/s2
+            MaskedSimulation.num_tracked_brightness_values+=1
+
+            if MaskedSimulation.num_tracked_brightness_values==MaskedSimulation.num_emitters_brightness_tracked:
+                tracked_brightness_mean=MaskedSimulation.brightness_tracker.mean().item()
+                error_estimate=((MaskedSimulation.brightness_tracker-tracked_brightness_mean)**2/MaskedSimulation.num_emitters_brightness_tracked).sum().sqrt().item()
+                assert not numpy.isnan(error_estimate)
+                print(f"emitter brightness fraction mean (std dev): {tracked_brightness_mean:5.4f} ({error_estimate:5.4f})") # should be pretty close to 1, but is not. no idea why
 
         # bg_frames do not include camera noise ()
         bg_frames=self.background.sample(mask=mask,device=device)

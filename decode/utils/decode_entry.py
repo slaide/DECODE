@@ -6,6 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 import pickle # to cache results
 from decode.neuralfitter.train.masked_simulation import setup_masked_simulation
+import scipy.io
 
 # continue training from a previous snapshot like this:
 #  pyenv exec python -m decode.neuralfitter.train.train -p konrads_params.yaml -l out
@@ -134,9 +135,59 @@ class Entry:
 
 entry=Entry(
     #model_file="/home/patrick/code/test_decode/out/real_emitter_brightness_distribution/model_2.pt",
-    model_file="/home/patrick/code/test_decode/out/low_cell_background/model_2.pt",
+    model_file="/home/patrick/code/test_decode/out/roi63_z500/model_2.pt",
     param_file="/home/patrick/code/test_decode/konrads_params.yaml",
 )
+
+if False:
+    psf_roi27 = decode.utils.calibration_io.SMAPSplineCoefficient(
+        calib_file="/home/patrick/code/test_decode/calibration/z_stack_2/zStack_roi27.mat"
+    ).init_spline(
+        xextent=entry.params.Simulation.psf_extent_img[0],
+        yextent=entry.params.Simulation.psf_extent_img[1],
+        img_shape=(
+            entry.params.Simulation.psf_extent_img[0][1],
+            entry.params.Simulation.psf_extent_img[1][1]
+        ),
+        device=entry.params.Hardware.device_simulation,
+        roi_size=entry.params.Simulation.roi_size,
+        roi_auto_center=entry.params.Simulation.roi_auto_center
+    )
+
+    psf_roi63 = decode.utils.calibration_io.SMAPSplineCoefficient(
+        calib_file="/home/patrick/code/test_decode/calibration/z_stack_2/zStack_roi63.mat"
+    ).init_spline(
+        xextent=entry.params.Simulation.psf_extent_img[0],
+        yextent=entry.params.Simulation.psf_extent_img[1],
+        img_shape=(
+            entry.params.Simulation.psf_extent_img[0][1],
+            entry.params.Simulation.psf_extent_img[1][1]
+        ),
+        device=entry.params.Hardware.device_simulation,
+        roi_size=entry.params.Simulation.roi_size,
+        roi_auto_center=entry.params.Simulation.roi_auto_center
+    )
+
+    em_xyz_px=[]
+    for index_i,z_height in enumerate(range(-500,501,125)):
+        em_xyz_px.append([100+index_i*70,100,z_height])
+
+    em_xyz_px=torch.tensor(em_xyz_px)
+    em_phot=torch.ones(len(em_xyz_px))[:]*1000
+
+    print(em_xyz_px)
+
+    some_sample_image_roi27=psf_roi27.forward(xyz=em_xyz_px, weight=em_phot)[0,30:130+em_xyz_px.shape[0]*70,0:200]
+    some_sample_image_roi63=psf_roi63.forward(xyz=em_xyz_px, weight=em_phot)[0,30:130+em_xyz_px.shape[0]*70,0:200]
+
+    print(f"{some_sample_image_roi27.sum()=}\n{some_sample_image_roi63.sum()=}")
+
+    plt.subplot(121)
+    plt.imshow(some_sample_image_roi27,cmap="jet")
+    plt.subplot(122)
+    plt.imshow(some_sample_image_roi63,cmap="jet")
+    plt.tight_layout()
+    plt.show()
 
 # mean image value is ~210 for image#0, ~150 for #200, ~140 for #999
 image_list=range(200,1000,1)
@@ -149,6 +200,8 @@ for image_index in tqdm(image_list):
 
 #plt.imshow(image_adu,cmap="jet")
 coords_list_numpy=numpy.concatenate([coords.xyz_nm.cpu().numpy() for coords in coords_list])
+
+scipy.io.savemat("membrane_localizations.mat",{"coords_xyz_nm":coords_list_numpy})
 
 def plot_thing(image_axis_0,image_axis_1,step_size):
     x_lim=coords_list_numpy[:,image_axis_0].min(),coords_list_numpy[:,image_axis_0].max()

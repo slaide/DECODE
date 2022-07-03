@@ -92,7 +92,9 @@ def setup_masked_simulation(param):
         frame_size=param.Simulation.img_size,
         device=param.Hardware.device_simulation)
 
-    frame_size_fraction=(param.Simulation.img_size[0]*param.Simulation.img_size[1])/(40*40) # rescale <brightness threshold, other things> to match new image size (more precisely, brightness seems to be distributed across all emitters, not across the whole frame, so this parameter should better be rescaled with the [average] number of emitters per frame, though this number is proportional to the frame size)
+    frame_size_fraction=(param.Simulation.img_size[0]*param.Simulation.img_size[1])/(40*40) 
+    # rescale <brightness threshold, other things> to match new image size 
+    # specifically, brightness seems to be distributed across all emitters, not across the whole frame, so this parameter should better be rescaled with the [average] number of emitters per frame, though this number is proportional to the frame size)
     param.PostProcessingParam.raw_th/=frame_size_fraction
     param.Simulation.emitter_av*=frame_size_fraction # probably not required
     param.HyperParameter.max_number_targets=int(param.HyperParameter.max_number_targets*param.Simulation.emitter_av)

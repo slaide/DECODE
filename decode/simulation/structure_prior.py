@@ -147,7 +147,7 @@ class CellMaskStructure:
         # values taken from a graph konrad gave me once (representing a single dataset! best data i have currently)
         if override_probs is None:
             probs=torch.tensor([0.0,1.8,1.7,0.0,0.1])
-            probs=torch.tensor([0.0,1.0,1.0,1.0,1.5,0.5,0.5,0.5,1.5,0.5,1.0,1.0])
+            #probs=torch.tensor([0.1,5.0,3.0,0.5,1.0,0.5,0.5,0.5,0.4,0.4,0.4,0.4])
         else:
             probs=torch.tensor(override_probs)
 
@@ -156,8 +156,7 @@ class CellMaskStructure:
             #print(num_emitters)
         else:
             num_emitters=torch.zeros((len(cell_regions),))
-            print(num_emitters.shape)
-            print(type(num_emitters[0]))
+            assert False, f"{num_emitters.shape=} {type(num_emitters[0])=}"
 
         # convert mask from numpy to torch for later functions that require torch tensor
         mask=skimage.img_as_float(mask)
@@ -242,8 +241,6 @@ class CellMaskStructure:
                     to_be_flipped_indices=numpy.random.choice(indices_above_zero,size=int(-missing_fraction*num_emitters),replace=False)
 
             total_emitter_coordinates[to_be_flipped_indices,2]*=-1.0
-
-        #print(f"target fraction emitters above zero: {target_fraction:.3f}, actual fraction: {((total_emitter_coordinates[:,2]>0).sum()/num_emitters):.3f}")
 
         return total_emitter_coordinates
 
