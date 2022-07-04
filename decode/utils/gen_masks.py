@@ -9,8 +9,9 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import torchvision # for torchvision.transforms.Compose
 
-from narsil.utils.transforms import resizeOneImage, tensorizeOneImage
-from narsil.segmentation.run import loadNet
+import decode
+from decode.utils.narsil.utils.transforms import resizeOneImage, tensorizeOneImage
+from decode.utils.narsil.segmentation.run import loadNet
 
 import edt
 from pathlib import Path
@@ -18,7 +19,7 @@ from pathlib import Path
 from scipy.io import loadmat # loads a .mat file (matlab binary data)
 import cv2 as cv # for cv.warpPerspective
 
-from typing import Tuple
+from typing import Tuple, List, Optional
 
 from decode.utils.img_file_io import read_img, write_img
 
@@ -26,15 +27,14 @@ from time import perf_counter
 from tqdm import tqdm
 
 import sys
-import decode
-from decode.utils.gen_masks import generate_cell_masks
+import glob
 
 numpy_rng=default_rng(seed=3339337589)
 
 """ iterable structure to load data into a network """
 class SegmentDirectory(Dataset):
     """ normalize and load all image files in directory """
-    def __init__(self, directory, transform = None, flip = False, save_dir=None, overwrite_data=False):
+    def __init__(self, directory, transform = None, flip = False, save_dir=None):
         self.directory = Path(directory)
         self.transform = transform
         self.save_dir=save_dir
@@ -44,7 +44,7 @@ class SegmentDirectory(Dataset):
             in enumerate(sorted(self.directory.iterdir()))
             if not filename.name.startswith(".")
             and (filename.name.endswith(".tif") or filename.name.endswith(".tiff"))
-            and (True if save_dir is None else overwrite_data or not (save_dir/f"dist_mask_{i_batch:08}.tiff").exists())
+            and (True if save_dir is None else not (save_dir/f"dist_mask_{i_batch:08}.tiff").exists())
         ]
         self.n_images = len(self.indices)
         self.flip = flip
@@ -74,7 +74,16 @@ class SegmentDirectory(Dataset):
         return i_batch,phase_img_normalized
 
 """ apply the segmentation net to all files in a directory """
-def generate_cell_segmentation_masks(phase_dir, save_dir, overwrite_data:bool=False, transform=None, device:str="cuda:0", threshold:float=0.9, remove_small_objects=None, model_path:str="mixed10epochs_betterscale_contrastAdjusted1.pth", net=None):
+def generate_cell_segmentation_masks(
+    phase_dir, 
+    save_dir, 
+    transform=None, 
+    device:str="cuda:0", 
+    threshold:float=0.9, 
+    remove_small_objects=None, 
+    model_path:str="mixed10epochs_betterscale_contrastAdjusted1.pth", 
+    net=None
+):
     if net is None:
         net=loadNet(model_path,device)
     
@@ -82,7 +91,7 @@ def generate_cell_segmentation_masks(phase_dir, save_dir, overwrite_data:bool=Fa
     if not saveDir.exists():
         saveDir.mkdir()
 
-    dataset = SegmentDirectory(phase_dir, transform=transform, flip=False, save_dir=save_dir, overwrite_data=overwrite_data)
+    dataset = SegmentDirectory(phase_dir, transform=transform, flip=False, save_dir=save_dir)
 
     if len(dataset)==0:
         return
@@ -95,7 +104,7 @@ def generate_cell_segmentation_masks(phase_dir, save_dir, overwrite_data:bool=Fa
     with torch.no_grad():
         for i_batch, data in dataloader:
             img_path=save_dir/f"dist_mask_{i_batch.item():08}.tiff"
-            if not img_path.exists() or overwrite_data: # this check should be redundant
+            if not img_path.exists(): # this check should be redundant
                 phase = data.to(device)
                 
                 mask_pred = net(phase)
@@ -158,8 +167,10 @@ class rotateImageBy90Degrees(object):
 """ generate cell masks for a series of experiments containing pairs of phase contrast images and fluorescence images """
 # this data cannot be generated on the fly because the essential part of generating the masks is an AI, which takes up a lot of vram
 # the gpu does not have enough vram to run two UNet derivatives simultaneously (or to keep them in memory at the same time)
-def generate_cell_masks(root_folder:str,fluo_roi:Tuple[Tuple[float,float],Tuple[float,float]],device:str="cuda:0",
-        overwrite_data:bool=False,
+def generate_cell_masks(
+        directory_list:List[str],
+        fluo_roi:Tuple[Tuple[float,float],Tuple[float,float]],
+        device:str="cuda:0",
         threshold:float=0.9,
         fluor_dir_name:str="fluor515",
         fluor_cropped_out_dir_name:str="fluor_cropped",
@@ -167,12 +178,9 @@ def generate_cell_masks(root_folder:str,fluo_roi:Tuple[Tuple[float,float],Tuple[
         dir_phase_noisy:str="phase_noisy",
         dir_phase:str="phase",
         dir_dist_masks:str="dist_masks",
-        dir_warped_dist_masks:str="warped_dist_masks",
+        dir_warped_dist_masks:Optional[str]="warped_dist_masks",
         model_path:str="mixed10epochs_betterscale_contrastAdjusted1.pth"
     ):
-
-    experiments_folder=Path(root_folder)
-    assert experiments_folder.exists()
 
     y_min=fluo_roi[1][0]
     y_max=fluo_roi[1][1]
@@ -184,146 +192,146 @@ def generate_cell_masks(root_folder:str,fluo_roi:Tuple[Tuple[float,float],Tuple[
     """
     create noisy phase contrast images and cell segmentation masks in advance
     
-    for each experiment:
-        for each position:
-            generate cell segmentation masks for all phase contrast images
-            warp the fluorescence images into the shape and position of the phase contrast images
+    for each experiment/directory:
+        generate cell segmentation masks for all phase contrast images
+        warp the fluorescence images into the shape and position of the phase contrast images
     """
-    experiment_folder_list=[folder for folder in sorted(experiments_folder.iterdir()) if folder.is_dir() and not folder.name.startswith(".")]
-    experiment_folder_list=tqdm(experiment_folder_list,desc="experiment")# if len(experiment_folder_list)>1 else experiment_folder_list
-    for experiment in experiment_folder_list:
-        """ generate dataloader transform once per experiment (for absolutely no reason) """
-        transform = torchvision.transforms.Compose([
-            rotateImageBy90Degrees(),
-            tensorizeOneImage(1)])
+
+    """ generate dataloader transform """
+    transform = torchvision.transforms.Compose([
+        rotateImageBy90Degrees(),
+        tensorizeOneImage(1)])
+
+    """ load phase contrast/fluorescence alignment transformation matrix """
+    # transpose because opencv coordinate system works different from matlab
+    transformation_matrix=loadmat(transmat_file_name)["transformationMatrix"].T
+    transformation_matrix_inv=numpy.linalg.inv(transformation_matrix)
+    
+    directory_list=[Path(directory) for directory in sorted(directory_list)]
+    experiment_directory_list=[directory for directory in directory_list if directory.is_dir() and not directory.name.startswith(".")]
+    experiment_directory_list=tqdm(experiment_directory_list,desc="directory")
+    for directory in experiment_directory_list:
+        noisy_phase_contrast_dir=directory/dir_phase_noisy
+        if not noisy_phase_contrast_dir.exists():
+            noisy_phase_contrast_dir.mkdir()
             
-        """ load possible experiment-specific phase contrast/fluorescence alignment transformation matrix """
-        transformation_matrix=loadmat(str(experiment/transmat_file_name))["transformationMatrix"].T # transpose because opencv coordinate system works different from matlab
-        transformation_matrix_inv=numpy.linalg.inv(transformation_matrix)
+        cropped_fluor_dir=directory/fluor_cropped_out_dir_name
+        if not cropped_fluor_dir.exists():
+            cropped_fluor_dir.mkdir()
+            
+        phase_dir=directory/dir_phase # is input
+        phase_images=[x for x in sorted(phase_dir.iterdir()) if x.is_file() and not x.name.startswith(".")]
+        num_phase_images=len(phase_images)
         
-        total_exp_pos_time=0.0
-        exp_pos_start=perf_counter()
+        fluor_dir=directory/fluor_dir_name # is input
+        fluor_images=[x for x in sorted(fluor_dir.iterdir()) if x.is_file() and not x.name.startswith(".")]
+        num_fluor_images=len(fluor_images)
+        
+        assert num_phase_images>0,"no phase contrast images found. either folder is empty, or something went wrong"
+        assert num_fluor_images>0,"no fluorescence images found. either folder is empty, or something went wrong"
 
-        positions=[position for position in sorted(experiment.iterdir()) if position.is_dir() and not position.name.startswith(".")]
-        positions=tqdm(positions,leave=False,desc="position")# if len(positions)>1 else positions
-        for pos_index,position in enumerate(positions,start=1):
-            #print(f"pos: {position}")
-            
-            noisy_phase_contrast_dir=position/dir_phase_noisy # contains phase contrast images, with some noise added on top to make the segmentation net work better. needs to be saved to disk because of how the dataloader currently works
-            if not noisy_phase_contrast_dir.exists():
-                noisy_phase_contrast_dir.mkdir()
+        assert num_fluor_images>=num_phase_images,"there must be at least one fluorescence image per phase contrast image"
+        
+        # there can be a multiple of fluor images per phase contrast image (i.e. take fluor image every minute, but phase contrast only every 2 minutes)
+        fluorescence_per_phase=num_fluor_images//num_phase_images
+        
+        assert num_fluor_images%num_phase_images==0,f"{str(directory)} {num_fluor_images} {num_phase_images}"
+        
+        """ generate noisy phase contrast images to improve network segmentation mask generation """
+        phase_images=tqdm(phase_images,leave=False,desc="gen noisy phase") if len(phase_images)>1 else phase_images
+        for (phase_index,phase_contrast_image_path) in enumerate(phase_images):
+            phase_contrast_image_noisy_path=noisy_phase_contrast_dir/phase_contrast_image_path.name
+            if not phase_contrast_image_noisy_path.exists():
+                phase_contrast_image=read_img(phase_contrast_image_path,from_dtype="u16",to_dtype="float32")
                 
-            cropped_fluor_dir=position/fluor_cropped_out_dir_name
-            if not cropped_fluor_dir.exists():
-                cropped_fluor_dir.mkdir()
+                # add a small bit of noise on top of the phase contrast image to avoid multiple issues with the segmentation mask (holes, dents, splits)
+                phase_contrast_image_noisy=phase_contrast_image+numpy_rng.normal(scale=0.03,size=phase_contrast_image.shape).astype(dtype=numpy.float32)
+                phase_contrast_image_noisy=phase_contrast_image_noisy.clip(0.0,1.0) # clip to [0.0,1.0] range because added noise might exceed 1.0
                 
-            phase_dir=position/dir_phase # is input
-            phase_images=[x for x in sorted(phase_dir.iterdir()) if x.is_file() and not x.name.startswith(".")]
-            num_phase_images=len(phase_images)
-            
-            fluor_dir=position/fluor_dir_name # is input
-            fluor_images=[x for x in sorted(fluor_dir.iterdir()) if x.is_file() and not x.name.startswith(".")]
-            num_fluor_images=len(fluor_images)
-            
-            assert num_phase_images>0,"no phase contrast images found. either folder is empty, or something went wrong"
-            assert num_fluor_images>0,"no fluorescence images found. either folder is empty, or something went wrong"
-            
-            fluorescence_per_phase=num_fluor_images//num_phase_images
-            
-            assert num_fluor_images%num_phase_images==0,f"{str(position)} {num_fluor_images} {num_phase_images}"
-            
-            phase_images=tqdm(phase_images,leave=False,desc="gen fuzzy phase") if len(phase_images)>1 else phase_images
-            for (phase_index,phase_contrast_image_path) in enumerate(phase_images):
-                #print(f"img: {phase_contrast_image_path}")
-                    
-                phase_contrast_image_noisy_path=noisy_phase_contrast_dir/phase_contrast_image_path.name
-                if not phase_contrast_image_noisy_path.exists() or overwrite_data:
-                    phase_contrast_image=read_img(phase_contrast_image_path,from_dtype="u16",to_dtype="float32")
-                    
-                    # add a small bit of noise on top of the phase contrast image to avoid multiple issues with the segmentation mask (holes, dents, splits)
-                    phase_contrast_image_noisy=phase_contrast_image+numpy_rng.normal(scale=0.03,size=phase_contrast_image.shape).astype(dtype=numpy.float32)
-                    phase_contrast_image_noisy=phase_contrast_image_noisy.clip(0.0,1.0) # clip to [0.0,1.0] range because added noise might exceed 1.0
-                    
-                    write_img(phase_contrast_image_noisy_path,phase_contrast_image_noisy,from_dtype="float32",as_dtype="u16")
+                write_img(phase_contrast_image_noisy_path,phase_contrast_image_noisy,from_dtype="float32",as_dtype="u16")
 
-            cell_mask_dir=position/dir_dist_masks
-            if not cell_mask_dir.exists():
-                cell_mask_dir.mkdir()
-            
-            generate_cell_segmentation_masks(
-                phase_dir=noisy_phase_contrast_dir,
-                save_dir=cell_mask_dir,
-                overwrite_data=overwrite_data,
-                transform=transform,
-                threshold=threshold,
-                device=device,
-                net=net)
+        """ apply segmentation network to (noisy) phase contrast images """
+        cell_mask_dir=directory/dir_dist_masks
+        if not cell_mask_dir.exists():
+            cell_mask_dir.mkdir()
+        
+        generate_cell_segmentation_masks(
+            phase_dir=noisy_phase_contrast_dir,
+            save_dir=cell_mask_dir,
+            transform=transform,
+            threshold=threshold,
+            device=device,
+            net=net)
 
-            warped_masks_dir=position/dir_warped_dist_masks
-            if not warped_masks_dir.exists():
-                warped_masks_dir.mkdir()
-                        
-            cell_masks=[x for x in sorted(cell_mask_dir.iterdir()) if x.is_file()]
+        """ align segmentation mask with fluorescence image, and crop both to the relevant ROI """
+        warped_masks_dir=directory/dir_warped_dist_masks
+        if not warped_masks_dir.exists():
+            warped_masks_dir.mkdir()
                     
-            cell_masks=tqdm(cell_masks,leave=False,desc="warp dist mask, crop fluo") if len(cell_masks)>1 else cell_masks
-            for (mask_index,cell_mask_path) in enumerate(cell_masks):
-                #print(f"cmp: {cell_mask_path}")
+        cell_masks=[x for x in sorted(cell_mask_dir.iterdir()) if x.is_file()]
                 
-                cropped_warped_mask_path=warped_masks_dir/cell_mask_path.name
-                fluor_image_path=fluor_images[mask_index*fluorescence_per_phase]
-                cropped_fluor_path=cropped_fluor_dir/fluor_image_path.name
+        cell_masks=tqdm(cell_masks,leave=False,desc="warp dist mask, crop fluo") if len(cell_masks)>1 else cell_masks
+        for (mask_index,cell_mask_path) in enumerate(cell_masks):
+            #print(f"cmp: {cell_mask_path}")
+            
+            cropped_warped_mask_path=warped_masks_dir/cell_mask_path.name
+            fluor_image_path=fluor_images[mask_index*fluorescence_per_phase]
+            cropped_fluor_path=cropped_fluor_dir/fluor_image_path.name
 
-                if not cropped_warped_mask_path.exists() or not cropped_fluor_path.exists() or overwrite_data:
-                    # transform phase contrast image to be aligned with the fluorescence image
-                    fluor_image=read_img(fluor_image_path,from_dtype="u12",to_dtype="u12")
-                    assert fluor_image.dtype==numpy.uint16
+            if not cropped_warped_mask_path.exists() or not cropped_fluor_path.exists():
+                # transform phase contrast image to be aligned with the fluorescence image
+                fluor_image=read_img(fluor_image_path,from_dtype="u12",to_dtype="u12")
+                assert fluor_image.dtype==numpy.uint16
 
-                    if not cropped_warped_mask_path.exists() or overwrite_data:
-                        cell_mask_img=read_img(cell_mask_path, from_dtype="u8", to_dtype="u8")
-                        warped_mask=cv.warpPerspective(cell_mask_img,transformation_matrix_inv,(fluor_image.shape[1],fluor_image.shape[0]))
-                        cropped_warped_mask=warped_mask[y_min:y_max,x_min:x_max]
+                if not cropped_warped_mask_path.exists():
+                    cell_mask_img=read_img(cell_mask_path, from_dtype="u8", to_dtype="u8")
+                    warped_mask=cv.warpPerspective(cell_mask_img,transformation_matrix_inv,(fluor_image.shape[1],fluor_image.shape[0]))
+                    cropped_warped_mask=warped_mask[y_min:y_max,x_min:x_max]
 
-                        assert cropped_warped_mask.sum()!=0, "warping mask image resulted in black image (all pixel values 0)"
-                        
-                        write_img(cropped_warped_mask_path, cropped_warped_mask, from_dtype="u8", as_dtype="u8")
+                    assert cropped_warped_mask.sum()!=0, "warping mask image resulted in black image (all pixel values 0)"
                     
-                    if not cropped_fluor_path.exists() or overwrite_data:
-                        # write cropped fluorescence that corresponds to the image region the phase contrast image was mapped onto
-                        cropped_fluor=fluor_image[y_min:y_max,x_min:x_max]
-                        write_img(cropped_fluor_path, cropped_fluor, from_dtype="u12", as_dtype="u12")
-
-            #print(f"pos: {pos_index:5} /{len(positions):5} ( {(pos_index/len(positions)*100):6.2f}% ) [ dir: {position.stem:16}, approx. time left: {((perf_counter()-exp_pos_start)/pos_index*(len(positions)-pos_index)):6.2f}s ]")
+                    write_img(cropped_warped_mask_path, cropped_warped_mask, from_dtype="u8", as_dtype="u8")
+                
+                if not cropped_fluor_path.exists():
+                    # write cropped fluorescence that corresponds to the image region the phase contrast image was mapped onto
+                    cropped_fluor=fluor_image[y_min:y_max,x_min:x_max]
+                    write_img(cropped_fluor_path, cropped_fluor, from_dtype="u12", as_dtype="u12")
 
     # clear vram
     del net
     torch.cuda.empty_cache()
 
-param = decode.utils.param_io.load_params('konrads_params.yaml')
+param_file_path="calibration/params.yaml"
 
-experiment_dir=sys.argv[1]
-input(f"press enter if you want to generate masks for '{experiment_dir}' : ")
-overwrite_data=input("overwrite previous masks? [yes/no] : ") in ("yes\n","yes","y","y\n")
-print(f"{'' if overwrite_data else 'not '}overwriting previous data")
+param = decode.utils.read_params(param_file_path)
 
-if str(experiment_dir)[0]!="/":
-    experiment_dir=Path(".")/experiment_dir
-else:
-    experiment_dir=Path(experiment_dir)
-    
-assert experiment_dir.exists() and experiment_dir.is_dir()
+folder_list=glob.glob("segmentation_masks/EXP-22-BQ4399/Run/Pos*")
 
-generate_cell_masks(experiment_dir,threshold=0.9,overwrite_data=overwrite_data,
+print("segmenting channel 1")
+generate_cell_masks(
+    directory_list=folder_list,
+    threshold=0.9,
     fluo_roi=param.Simulation.fluo_roi,
     fluor_dir_name="fluor515",
     fluor_cropped_out_dir_name="fluor_cropped_515",
-    transmat_file_name="transMatV_3D.mat",
+    transmat_file_name="calibration/transMatV.mat",
     dir_dist_masks="dist_masks_515",
-    dir_warped_dist_masks="warped_dist_masks_515")
-param.Simulation.fluo_roi[1]=(param.Simulation.fluo_roi[1][0]-(2082//2),param.Simulation.fluo_roi[1][1]-(2082//2))
-generate_cell_masks(experiment_dir,threshold=0.9,overwrite_data=overwrite_data,
+    dir_warped_dist_masks="warped_dist_masks_515",
+    model_path="calibration/mixed10epochs_betterscale_contrastAdjusted1.pth")
+
+# crop the other channel, too (and re-generate segmentation masks, which should be disabled)
+param.Simulation.fluo_roi=(
+    param.Simulation.fluo_roi[0],
+    (param.Simulation.fluo_roi[1][0]-(2082//2),param.Simulation.fluo_roi[1][1]-(2082//2)),
+)
+print("segmenting channel 2")
+generate_cell_masks(
+    directory_list=folder_list,
+    threshold=0.9,
     fluo_roi=param.Simulation.fluo_roi,
     fluor_dir_name="fluor580",
     fluor_cropped_out_dir_name="fluor_cropped_580",
-    transmat_file_name="transMatC_3D.mat",
+    transmat_file_name="calibration/transMatC.mat",
     dir_dist_masks="dist_masks_580",
-    dir_warped_dist_masks="warped_dist_masks_580")
+    dir_warped_dist_masks="warped_dist_masks_580",
+    model_path="calibration/mixed10epochs_betterscale_contrastAdjusted1.pth")

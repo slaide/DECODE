@@ -116,7 +116,7 @@ def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False) 
             if not experiment.is_dir() or experiment.name.startswith("."):
                 continue
                 
-            position_list=[p for p in experiment.iterdir()]
+            position_list=[p for p in (experiment/"Run").iterdir()]
             for position in position_list:
                 if not position.is_dir() or position.name.startswith("."):
                     continue

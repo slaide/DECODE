@@ -169,5 +169,7 @@ decode/test/assets/9_dataset.pt
 /decode/cpp_src/lib/eigen/
 .DS_Store
 
-# ignroe file locks
+# ignore file locks
 *~
+
+.comments
