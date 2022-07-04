@@ -16,7 +16,7 @@ else:
     # pip needs requirements here; keep in sync with meta.yaml!
     requirements = [
         "numpy",
-        "torch==1.7.1",
+        "torch>=1.7.1",
         "click",
         "deprecated",
         "gitpython>=3.1",
