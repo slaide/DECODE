@@ -116,7 +116,7 @@ def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False) 
             if not experiment.is_dir() or experiment.name.startswith("."):
                 continue
                 
-            position_list=[p for p in (experiment/"Run").iterdir()]
+            position_list=[p for p in (experiment).iterdir()]
             for position in position_list:
                 if not position.is_dir() or position.name.startswith("."):
                     continue
@@ -151,6 +151,10 @@ from time import perf_counter
 from decode.generic import EmitterSet
 import matplotlib.pyplot as plt
 import decode
+#from math import min,max
+
+def clamp(x,low,high):
+    return min(high,max(low,x))
 
 class MaskedSimulation:
     """
@@ -337,8 +341,42 @@ class MaskedSimulation:
             torch.Tensor: background frames (e.g. to predict the bg seperately)
         """
 
+        # remove noise from psf that smap could not have known to not actually be part of the psf
+        em_xyz_px=em.xyz_px
+        em_phot=em.phot
+        em_frame_ix=em.frame_ix
+        # this requires simulating the dots seperately, since there is some thresholding involved which does not work with overlapping dots
+        # this is ~<20% slower than simulation without psf noise removal
+        for i in range(0,em.xyz_px.shape[0]):
+            new_frame=self.psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None)
 
-        emitter_frames:torch.Tensor = self.psf.forward(em.xyz_px, em.phot, em.frame_ix, ix_low=None, ix_high=None)
+            extent_x0=max(int(em_xyz_px[i][0]) - (45//2 + 2),0)
+            extent_x1=min(int(em_xyz_px[i][0]) + (45//2 + 2),new_frame.shape[1])
+            extent_y0=max(int(em_xyz_px[i][1]) - (45//2 + 2),0)
+            extent_y1=min(int(em_xyz_px[i][1]) + (45//2 + 2),new_frame.shape[2])
+
+            current_phot=em_phot[i].item()
+
+            psf_background=0.4/1e3*current_phot
+            psf_threshold=0.0
+
+            # only operate on dot region (+small buffer) for better performance
+            snippet=new_frame[0,extent_x0:extent_x1,extent_y0:extent_y1]
+            # remove some manually determined background noise from partially wrongly approximated psf
+            snippet-=psf_background
+            # remove some additional noise by thresholding
+            snippet[snippet<psf_threshold]=0
+            # scale to match expected brightness of emitter
+            snippet*=current_phot/snippet.sum()
+
+            if i==0:
+                emitter_frames:torch.Tensor = new_frame
+            else:
+                emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
+
+                if torch.isnan(snippet.min()):
+                    print(f"{(snippet.shape) = }")
+                    raise
 
         if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values < MaskedSimulation.num_emitters_brightness_tracked:
             s1=emitter_frames.sum().item()
@@ -356,10 +394,13 @@ class MaskedSimulation:
         # bg_frames do not include camera noise ()
         bg_frames=self.background.sample(mask=mask,device=device)
         
-        # in decode, poisson noise is applied to background AND emitters
+        # in decode, poisson noise is applied to background AND emitters (not sure why?)
         if False:
-            frames=self.noise.forward(self.noise.poisson.forward(bg_frames)+emitter_frames,sample_photons=False)
+            # i think it should be like in this (or rather this is closer to reality)
+            bg_frames_plus_noise=self.noise.poisson.forward(bg_frames)
+            frames=self.noise.forward(bg_frames_plus_noise+emitter_frames,sample_photons=False)
         else:
+            # this is how it is done in the original decode code
             frames=self.noise.forward(bg_frames+emitter_frames)
 
         return frames, bg_frames
