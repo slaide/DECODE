@@ -1,13 +1,16 @@
 import skimage
 import skimage.io
 import numpy
+import tifffile
 
 def read_img(path,from_dtype='u12',to_dtype="float32"):
-    img_data=skimage.io.imread(str(path), as_gray = True)
+    img_data=skimage.io.imread(str(path), plugin="tifffile", as_gray = True)
     assert from_dtype in ("u8","u12",'u16',"float32")
     assert to_dtype in ("u8","u12",'u16',"float32")
 
     if from_dtype==to_dtype:
+        if from_dtype=="float32":
+            assert img_data.dtype==numpy.float32, f"{str(path)=}"
         return img_data
 
     if to_dtype=="float32":

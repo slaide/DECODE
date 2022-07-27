@@ -30,7 +30,7 @@ Camera:
   read_sigma: 74.4 # median read (readout) noise (in electrons?)
   spur_noise: 0.002 # spurious noise (background noise in camera sensors)
 Evaluation:
-  dist_ax: 500.0 # i think this is the distance within which emitter positions are matched for evaluation (relevant for classification, and upper bound for localization precision)
+  dist_ax: 500.0 # this is the distance within which emitter positions are matched for evaluation (relevant for classification, and upper bound for localization precision)
   dist_lat: 250.0
   dist_vol:
   match_dims: 3
@@ -67,9 +67,9 @@ HyperParameter:
     up_mode: upsample
     use_last_nl:
   architecture: SigmaMUNet
-  batch_size: 64
+  batch_size: 64 # decode.utils.hardware contains a function that tests for the max batch size possible given the current gpu
   channels_in: 3 # number of frames used as input for second part of network (default: 3, set to 1 to 'disable' use of multiple frames)
-  channels_out:
+  channels_out: # 10 is default (?)
   chweight_stat:
     - 1.0
     - 1.0
@@ -85,21 +85,21 @@ HyperParameter:
   learning_rate_scheduler_param:
     step_size: 10 # every 10 epochs \
     gamma: 0.9 # reduce learning rate to 90% of former value
-  max_number_targets: 250 # what is this exactly? max number of predicted fluorophores? (which would be a post-processing parameter)
+  max_number_targets: 250 # used for post-processing - should be replacable with dynamic max target check (max number of targets per frame) forwarded to decode.neuralfitter.target_generator.ParameterListTarget.n_max
   moeller_gradient_rescale: false
   opt_param:
     lr: 0.0006
     weight_decay: 0.1
   optimizer: AdamW
-  photon_threshold:
+  photon_threshold: # seems like it was not used anywhere
   pseudo_ds_size: 10000 # number of images sampled for training
   root_experiments_folder: experiments
 InOut:
   calibration_file: data/calibration/flowcell_p65nm_z25nm_3dcal.mat  # cubic spline coefficients
   checkpoint_init:   # initialise from checkpoint (i.e. resume training)
   experiment_out: network/2020-07-06  # main output dir
-  model_init:
-PostProcessing: LookUp  # (blank) for no post-processing or LookUp, Consistency
+  model_init: # seems to not be used anyhwere
+PostProcessing: LookUp  # LookUp, SpatialIntegration, (blank) for no post-processing
 PostProcessingParam:
   raw_th: 0.5
 Scaling:  # if some values are missing they will be auto-set as described in the respective comments below

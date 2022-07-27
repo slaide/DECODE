@@ -99,62 +99,25 @@ import edt
 from decode.utils.img_file_io import read_img
 
 """ generator that yields cell mask snippets (and if requested, the corresponding phase contrast snippets) """
-def sample_cell_masks(root_folder,side_length=40,also_yield_fluorescence=False) -> Generator[Optional[numpy.array],None,None] :
-    experiments_folder=Path(root_folder)
-    assert experiments_folder.exists()
-    
-    """
-    for each experiment:
-        for each position:
-            for each pair of cell segmenation mask and fluorescence images:
-                cut the same region from both images
-                yield tuple of mask[/fluorescence snippets]
-    
-    """
+def sample_cell_masks(mask_list) -> Generator[numpy.array,None,None]:
+    assert len(mask_list)>0
     while True:
-        for experiment in experiments_folder.iterdir():
-            if not experiment.is_dir() or experiment.name.startswith("."):
-                continue
-                
-            position_list=[p for p in (experiment).iterdir()]
-            for position in position_list:
-                if not position.is_dir() or position.name.startswith("."):
-                    continue
-                    
-                cell_mask_dir=position/"warped_dist_masks_580"
-                fluorescence_dir=position/"fluor_cropped_580"
-                assert cell_mask_dir.exists() and fluorescence_dir.exists(),"real data not properly pre-processed"
-                    
-                # TODO : the image lists need to be sorted by index! (by the index number that is contained in their filenames. should be last 8 letters/digits in the filename, excl. filetype)
-                    
-                cell_masks=[x for x in cell_mask_dir.iterdir() if not x.name.startswith(".")]
-                fluorescence=[x for x in fluorescence_dir.iterdir() if not x.name.startswith(".")]
-                    
-                num_fluorescence_images=len(fluorescence)
-                num_cell_masks=len(cell_masks)
-                
-                assert num_fluorescence_images>0,"no noise-added phase contrast images found. either folder is empty, or something went wrong"
-                
-                fluorescence_per_cell_mask=num_fluorescence_images//num_cell_masks
-                
-                assert num_fluorescence_images%num_cell_masks==0,f"{num_cell_masks} {num_fluorescence_images}"
-                
-                for image_index in range(0,num_cell_masks):
-                    cell_mask_image=read_img(cell_masks[image_index*fluorescence_per_cell_mask],from_dtype="u8",to_dtype="u8")
+        for mask in mask_list:
+            cell_mask_image=read_img(mask,from_dtype="float32",to_dtype="float32")
 
-                    # TODO this is a very temporary solution!
-                    cell_mask_image=edt.edt(cell_mask_image, order='C', parallel=0).astype(dtype=numpy.uint8)
-
-                    yield cell_mask_image
+            yield cell_mask_image
 
 from time import perf_counter
 from decode.generic import EmitterSet
 import matplotlib.pyplot as plt
 import decode
-#from math import min,max
-
-def clamp(x,low,high):
-    return min(high,max(low,x))
+import glob
+from skimage.measure import label, regionprops
+from skimage import filters
+import time
+import multiprocessing
+import multiprocessing.shared_memory
+import threading
 
 class MaskedSimulation:
     """
@@ -172,7 +135,7 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, root_experiments_folder:Union[str,Path], psf: psf_kernel.PSF, em_sampler, background, num_frames: int, frame_size:Tuple[int,int], noise, device:Union[str,torch.device]="cpu"):
+    def __init__(self, segmentation_masks_glob:str, psf: psf_kernel.PSF, em_sampler, num_frames: int, frame_size:Tuple[int,int], noise, device:Union[str,torch.device]="cpu",background_args=None):
         """
         Init Simulation.
 
@@ -188,36 +151,28 @@ class MaskedSimulation:
         self.num_frames = num_frames
 
         self.psf = psf
-        self.background = background
         self.noise = noise
 
-        self.root_experiments_folder=root_experiments_folder if isinstance(root_experiments_folder,Path) else Path(root_experiments_folder)
         self.frame_size=frame_size
-        self.mask_sampler=sample_cell_masks(self.root_experiments_folder,also_yield_fluorescence=False)
+        self.mask_sampler=sample_cell_masks(glob.glob(segmentation_masks_glob))
 
         self.snippet_buffer=None
         self.snippet_buffer_bg=None
 
         self.device=device
 
+        self.environmental_background=background_args.environmental_background
+        self.mean_brightness_per_volume=background_args.mean_brightness_per_volume
+        self.gaussian_width=background_args.gaussian_width
+
     def sample_full_frame(self,fraction_emitters_above_zero:float=0.5,override_probs=None):
 
         # try sampling cell mask. if (internal) iteration stops, restart
-        mask_sampler_result=self.mask_sampler.__next__()
-
-        if mask_sampler_result is None:
-            self.mask_sampler=sample_cell_masks(self.root_experiments_folder,also_yield_fluorescence=False)
-            return self.sample_full_frame()
-        else:
-            mask=mask_sampler_result
-
-        # sample emitters per frame
-        single_frame_emitter_set = self.em_sampler.sample(mask,fraction_emitters_above_zero=fraction_emitters_above_zero,override_probs=override_probs)
+        mask=self.mask_sampler.__next__()
+        mask*=self.mean_brightness_per_volume
 
         # forward emitter position through image simulation pipeline
-        frames, frames_bg = self.forward(mask, single_frame_emitter_set, device=self.device)
-        #print(frames_bg.min(),frames_bg.mean())
-        #print(frames.min(),frames.mean())
+        single_frame_emitter_set, frames, frames_bg = self.forward(mask, device=self.device)
 
         return single_frame_emitter_set,mask,frames,frames_bg
 
@@ -243,18 +198,12 @@ class MaskedSimulation:
 
         time_passed=0.0
 
-        while snippets_returned!=self.num_frames:
+        while snippets_returned<self.num_frames:
             if False and not self.snippet_buffer is None:
                 raise NotImplementedError("return snippets from buffer/last frame")
 
-            # try sampling cell mask. if (internal) iteration stops, restart
-            mask=self.mask_sampler.__next__()
-
-            # sample emitters per frame # this takes 1/3 of the total time
-            single_frame_emitter_set = self.em_sampler.sample(mask)
-
-            # forward emitter position through image simulation pipeline
-            frames, frames_bg = self.forward(mask, single_frame_emitter_set, device=self.device)
+            # sample emitter data, generated frame and background, also also get mask that was used to generate the other data
+            single_frame_emitter_set, mask, frames, frames_bg = self.sample_full_frame()
 
             dim_0_snippet_count=mask.shape[0]//self.frame_size[0]
             dim_1_snippet_count=mask.shape[1]//self.frame_size[1]
@@ -281,14 +230,14 @@ class MaskedSimulation:
 
             single_frame_emitter_set.xyz_px[:,:2]-=indices[frame_indices].astype(numpy.float32)
 
-            assert single_frame_emitter_set.xyz_px[:,0].min()>=0
-            assert single_frame_emitter_set.xyz_px[:,1].min()>=0
-            assert single_frame_emitter_set.xyz_px[:,0].max()<=self.frame_size[0]
-            assert single_frame_emitter_set.xyz_px[:,1].max()<=self.frame_size[1]
+            # assert single_frame_emitter_set.xyz_px[:,0].min()>=0
+            # assert single_frame_emitter_set.xyz_px[:,1].min()>=0
+            # assert single_frame_emitter_set.xyz_px[:,0].max()<=self.frame_size[0]
+            # assert single_frame_emitter_set.xyz_px[:,1].max()<=self.frame_size[1]
 
             hist,_bins=numpy.histogram(frame_indices,bins=numpy.arange(0,indices.shape[0]+1))
-            mask=hist==0
-            offset=numpy.add.accumulate(mask)
+            hist_mask=hist==0
+            offset=numpy.add.accumulate(hist_mask)
             frame_indices_adjusted=frame_indices if accept_empty_frames else frame_indices-offset[frame_indices] # for f in sorted(unique(frame_indices)): s=sum(sorted(unique(frame_indices))<f) ; frame_indices[frame_indices==f]-=s; endif
 
             single_frame_emitter_set.frame_ix=torch.from_numpy(frame_indices_adjusted+snippets_returned)
@@ -298,7 +247,6 @@ class MaskedSimulation:
             else:
                 emitter_set+=single_frame_emitter_set
 
-            # this could probably be made even faster by broadcasting the frame, but i cannot be asked (also, may increase ram usage by several megabytes.. (~1MB per frame * 15*10 snippets per frame -> ~1.5GB))
             for f,h in enumerate(hist):
                 if accept_empty_frames or h>0:
                     i,j=indices[f]
@@ -322,85 +270,126 @@ class MaskedSimulation:
 
         return emitter_set, frames, frames_bg
 
-    # static
-    brightness_tracking_on=False
-    num_emitters_brightness_tracked=100
-    brightness_tracker=torch.zeros((num_emitters_brightness_tracked,)) if brightness_tracking_on else None
-    num_tracked_brightness_values=0
-
-    def forward(self, mask:numpy.ndarray, em: EmitterSet, device:Union[str,torch.device]="cpu") -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, 
+        mask:numpy.ndarray, 
+        device:Union[str,torch.device]="cpu",
+        fraction_emitters_above_zero:float=0.5,
+        override_probs=None
+    ) -> Tuple[decode.generic.emitter.EmitterSet, torch.Tensor, torch.Tensor]:
         """
         Forward an EmitterSet through the simulation pipeline.
 
         Args:
             mask: cell (thickness) mask
-            em (EmitterSet): Emitter Set
 
         Returns: # this assumes that background bg_return is set to 'tuple'
+            EmitterSet: sampled emitters
             torch.Tensor: simulated frames
             torch.Tensor: background frames (e.g. to predict the bg seperately)
         """
 
+        class Timer:
+            def __init__(self,s=""):
+                self.msg=s
+            def __enter__(self):
+                self.timer=time.perf_counter()
+            def __exit__(self,a,b,c):
+                print(f"timer {self.msg}: {(time.perf_counter()-self.timer):.3f}")
+
+        # sample emitters per frame
+        # incl. transform mask to correct cell background with included emitters
+        single_frame_emitter_set = self.em_sampler.sample(mask,fraction_emitters_above_zero=fraction_emitters_above_zero,override_probs=override_probs)
+
+        binary_mask=mask>0
+        cell_regions=regionprops(label(binary_mask))
+
         # remove noise from psf that smap could not have known to not actually be part of the psf
-        em_xyz_px=em.xyz_px
-        em_phot=em.phot
-        em_frame_ix=em.frame_ix
         # this requires simulating the dots seperately, since there is some thresholding involved which does not work with overlapping dots
-        # this is ~<20% slower than simulation without psf noise removal
-        for i in range(0,em.xyz_px.shape[0]):
-            new_frame=self.psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None)
+        # this is ~20% slower than simulation without psf noise removal
+        em_xyz_px=single_frame_emitter_set.xyz_px
+        em_phot=single_frame_emitter_set.phot
+        em_frame_ix=single_frame_emitter_set.frame_ix
 
-            extent_x0=max(int(em_xyz_px[i][0]) - (45//2 + 2),0)
-            extent_x1=min(int(em_xyz_px[i][0]) + (45//2 + 2),new_frame.shape[1])
-            extent_y0=max(int(em_xyz_px[i][1]) - (45//2 + 2),0)
-            extent_y1=min(int(em_xyz_px[i][1]) + (45//2 + 2),new_frame.shape[2])
+        em_xyz_px_int=em_xyz_px.numpy().astype(dtype=int)
 
-            current_phot=em_phot[i].item()
+        extent_x0_list=numpy.clip(em_xyz_px_int[:,0] - (45//2 + 2), a_min=0, a_max=None)
+        extent_x1_list=numpy.clip(em_xyz_px_int[:,0] + (45//2 + 2), a_min=None, a_max=mask.shape[0])
+        extent_y0_list=numpy.clip(em_xyz_px_int[:,1] - (45//2 + 2), a_min=0, a_max=None)
+        extent_y1_list=numpy.clip(em_xyz_px_int[:,1] + (45//2 + 2), a_min=None, a_max=mask.shape[1])
 
-            psf_background=0.4/1e3*current_phot
-            psf_threshold=0.0
+        # scale a threshold to fit current brightness (threshold was manully determined to be 0.4 for an emitter brightness of 1e3)
+        psf_background_list=(0.4/1e3*em_phot).numpy()
+        # (this is a different threshold value that was manually determined)
+        psf_threshold=0.0
+        def get_emitter_frames(start,end,memory):
+            for i in range(start,end):
+                new_frame=self.psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
 
-            # only operate on dot region (+small buffer) for better performance
-            snippet=new_frame[0,extent_x0:extent_x1,extent_y0:extent_y1]
-            # remove some manually determined background noise from partially wrongly approximated psf
-            snippet-=psf_background
-            # remove some additional noise by thresholding
-            snippet[snippet<psf_threshold]=0
-            # scale to match expected brightness of emitter
-            snippet*=current_phot/snippet.sum()
+                extent_x0=extent_x0_list[i]
+                extent_x1=extent_x1_list[i]
+                extent_y0=extent_y0_list[i]
+                extent_y1=extent_y1_list[i]
 
-            if i==0:
-                emitter_frames:torch.Tensor = new_frame
-            else:
-                emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
+                # only operate on dot region (+small buffer) for better performance
+                snippet=new_frame[0,extent_x0:extent_x1,extent_y0:extent_y1]
+                # remove some manually determined background noise from partially wrongly approximated psf
+                snippet-=psf_background_list[i]
+                # remove some additional noise by thresholding
+                snippet[snippet<psf_threshold]=0
+                # scale to match expected brightness of emitter
+                snippet*=em_phot[i].item()/snippet.sum()
 
-                if torch.isnan(snippet.min()):
-                    print(f"{(snippet.shape) = }")
-                    raise
+                if i==start:
+                    emitter_frames:torch.Tensor = new_frame
+                else:
+                    emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
 
-        if MaskedSimulation.brightness_tracking_on and MaskedSimulation.num_tracked_brightness_values < MaskedSimulation.num_emitters_brightness_tracked:
-            s1=emitter_frames.sum().item()
-            s2=em.phot.sum().item()
+            memory[:]=emitter_frames[0,:]
 
-            MaskedSimulation.brightness_tracker[MaskedSimulation.num_tracked_brightness_values]=s1/s2
-            MaskedSimulation.num_tracked_brightness_values+=1
+        # this is sometimes up to 15% faster
+        num_threads=3
 
-            if MaskedSimulation.num_tracked_brightness_values==MaskedSimulation.num_emitters_brightness_tracked:
-                tracked_brightness_mean=MaskedSimulation.brightness_tracker.mean().item()
-                error_estimate=((MaskedSimulation.brightness_tracker-tracked_brightness_mean)**2/MaskedSimulation.num_emitters_brightness_tracked).sum().sqrt().item()
-                assert not numpy.isnan(error_estimate)
-                print(f"emitter brightness fraction mean (std dev): {tracked_brightness_mean:5.4f} ({error_estimate:5.4f})") # should be pretty close to 1, but is not. no idea why
+        points=numpy.linspace(0,em_xyz_px.shape[0],num_threads+1,dtype=int)
 
-        # bg_frames do not include camera noise ()
-        bg_frames=self.background.sample(mask=mask,device=device)
+        memory=[
+            multiprocessing.shared_memory.SharedMemory(create=True,size=mask.nbytes)
+            for _ in range(num_threads)
+        ]
+        processes=[
+            multiprocessing.Process(
+                target=get_emitter_frames,
+                args=(points[p],points[p+1],numpy.ndarray(mask.shape,mask.dtype,buffer=memory[p].buf))
+            ) 
+            for p in range(num_threads)
+        ]
+
+        for p in processes:
+            p.start()
+
+        # run first step of background simulation on main thread while waiting for emitter/dot simulation
+        bg_frames=filters.gaussian(mask,self.gaussian_width)+self.environmental_background
+        bg_frames=torch.from_numpy(bg_frames).to(device)
+
+        for p in processes:
+            p.join()
+
+        emitter_frames=numpy.ndarray(mask.shape,mask.dtype,buffer=memory[0].buf)
+        for t in range(1,num_threads):
+            emitter_frames+=numpy.ndarray(mask.shape,mask.dtype,buffer=memory[t].buf)
+
+        emitter_frames=emitter_frames.copy()
+        emitter_frames=torch.from_numpy(emitter_frames).reshape((1,mask.shape[0],mask.shape[1]))
+
+        for m in memory:
+            m.close()
+            m.unlink()
         
-        # in decode, poisson noise is applied to background AND emitters (not sure why?)
+        # in decode, poisson noise is applied to background AND emitters
+        # seems counter-intuitive, but that actually looks more realistic
         if False:
-            # i think it should be like in this (or rather this is closer to reality)
             bg_frames_plus_noise=self.noise.poisson.forward(bg_frames)
             frames=self.noise.forward(bg_frames_plus_noise+emitter_frames,sample_photons=False)
         else:
-            # this is how it is done in the original decode code
             frames=self.noise.forward(bg_frames+emitter_frames)
 
-        return frames, bg_frames
+        return single_frame_emitter_set, frames, bg_frames

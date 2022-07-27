@@ -15,7 +15,6 @@ import decode.neuralfitter.coord_transform
 import decode.neuralfitter.utils
 import decode.simulation
 import decode.utils
-from decode.neuralfitter.train.random_simulation import setup_random_simulation
 from decode.neuralfitter.train.masked_simulation import setup_masked_simulation
 from decode.neuralfitter.utils import log_train_val_progress
 from decode.utils.checkpoint import CheckPoint
@@ -79,11 +78,9 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
     sim_train, sim_test = setup_masked_simulation(param)
 
     assert sim_train.em_sampler.intensity_dist_type=="discrete"
-    #set scaling parameter manually
-    param.Simulation.intensity_mu_sig=sim_train.em_sampler._intensity_mu_sig()
 
     # auto-set some parameters (will be stored in the backup copy)
-    param = decode.utils.param_io.autoset_scaling(param)
+    #param = decode.utils.param_io.autoset_scaling(param)
 
     # add meta information
     param.Meta.version = decode.utils.bookkeeping.decode_state()
@@ -179,7 +176,27 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
 
     ds_train, ds_test, model, model_ls, optimizer, criterion, lr_scheduler, grad_mod, post_processor, matcher, ckpt = \
         setup_trainer(sim_train, sim_test, logger, model_out, ckpt_path, device, param)
-    dl_train, dl_test = setup_dataloader(param, ds_train, ds_test)
+    
+    dl_train = torch.utils.data.DataLoader(
+        dataset=ds_train,
+        batch_size=param.HyperParameter.batch_size,
+        drop_last=True,
+        shuffle=True,
+        num_workers=param.Hardware.num_worker_train,
+        pin_memory=True,
+        collate_fn=decode.neuralfitter.utils.dataloader_customs.smlm_collate)
+
+    if ds_test is not None:
+        dl_test = torch.utils.data.DataLoader(
+            dataset=ds_test,
+            batch_size=param.HyperParameter.batch_size,
+            drop_last=False,
+            shuffle=False,
+            num_workers=param.Hardware.num_worker_train,
+            pin_memory=False,
+            collate_fn=decode.neuralfitter.utils.dataloader_customs.smlm_collate)
+    else:
+        dl_test = None
 
     if from_ckpt:
         ckpt = decode.utils.checkpoint.CheckPoint.load(param.InOut.checkpoint_init)
@@ -289,8 +306,8 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
     """Set model, optimiser, loss and schedulers"""
     models_available = {
         'SigmaMUNet': decode.neuralfitter.models.SigmaMUNet,
-        'DoubleMUnet': decode.neuralfitter.models.model_param.DoubleMUnet,
-        'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
+        #'DoubleMUnet': decode.neuralfitter.models.model_param.DoubleMUnet,
+        #'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
     }
 
     model = models_available[param.HyperParameter.architecture]
@@ -467,36 +484,6 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
     matcher = decode.evaluation.match_emittersets.GreedyHungarianMatching.parse(param)
 
     return train_ds, test_ds, model, model_ls, optimizer, criterion, lr_scheduler, grad_mod, post_processor, matcher, checkpoint
-
-
-def setup_dataloader(param, train_ds, test_ds=None):
-    """Set's up dataloader"""
-
-    train_dl = torch.utils.data.DataLoader(
-        dataset=train_ds,
-        batch_size=param.HyperParameter.batch_size,
-        drop_last=True,
-        shuffle=True,
-        num_workers=param.Hardware.num_worker_train,
-        pin_memory=True,
-        collate_fn=decode.neuralfitter.utils.dataloader_customs.smlm_collate)
-
-    if test_ds is not None:
-
-        test_dl = torch.utils.data.DataLoader(
-            dataset=test_ds,
-            batch_size=param.HyperParameter.batch_size,
-            drop_last=False,
-            shuffle=False,
-            num_workers=param.Hardware.num_worker_train,
-            pin_memory=False,
-            collate_fn=decode.neuralfitter.utils.dataloader_customs.smlm_collate)
-    else:
-
-        test_dl = None
-
-    return train_dl, test_dl
-
 
 if __name__ == '__main__':
     args = parse_args()

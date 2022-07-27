@@ -25,28 +25,15 @@ def setup_masked_simulation(param):
         
     frame_range_test = (0, param.TestSet.test_size)
 
-    """ Structure Prior """
-
-    prior_struct = decode.simulation.structure_prior.CellMaskStructure.parse(param)
-
     """ emitter generators from structure prior"""
 
     prior_test = decode.simulation.emitter_generator.MaskedEmitterSampler.parse(
         param, 
-        structure=prior_struct, 
         num_frames=frame_range_test[1])
 
     prior_train = decode.simulation.emitter_generator.MaskedEmitterSampler.parse(
         param, 
-        structure=prior_struct, 
         num_frames=frame_range_train[1])
-
-    """ background """
-
-    bg=decode.simulation.background.DiscreteBackground.parse(param)
-
-    # TODO rescale input how?
-    param.Simulation.bg_uniform=bg._bg_uniform()
 
     """ noise model """
 
@@ -71,26 +58,26 @@ def setup_masked_simulation(param):
     """ setup simulation for training"""
 
     simulation_train = decode.simulation.simulator.MaskedSimulation(
-        root_experiments_folder=param.InOut.root_experiments_folder, 
+        segmentation_masks_glob=param.InOut.segmentation_masks, 
         psf=psf, 
         em_sampler=prior_train, 
-        background=bg, 
         noise=noise, 
         num_frames=frame_range_train[1],
         frame_size=param.Simulation.img_size,
-        device=param.Hardware.device_simulation)
+        device=param.Hardware.device_simulation,
+        background_args=param.Simulation.background)
 
     """ setup simulation for testing """
 
     simulation_test = decode.simulation.simulator.MaskedSimulation(
-        root_experiments_folder=param.InOut.root_experiments_folder, 
+        segmentation_masks_glob=param.InOut.segmentation_masks, 
         psf=psf, 
         em_sampler=prior_test, 
-        background=bg, 
         noise=noise,
         num_frames=frame_range_test[1],
         frame_size=param.Simulation.img_size,
-        device=param.Hardware.device_simulation)
+        device=param.Hardware.device_simulation,
+        background_args=param.Simulation.background)
 
     frame_size_fraction=(param.Simulation.img_size[0]*param.Simulation.img_size[1])/(40*40) 
     # rescale <brightness threshold, other things> to match new image size 

@@ -93,21 +93,21 @@ class SigmaMUNet(model_param.DoubleMUnet):
         activation = getattr(torch.nn, param.HyperParameter.arch_param.activation)
         activation = activation()
         return cls(
-            ch_in=param.HyperParameter.channels_in,
-            depth_shared=param.HyperParameter.arch_param.depth_shared,
-            depth_union=param.HyperParameter.arch_param.depth_union,
-            initial_features=param.HyperParameter.arch_param.initial_features,
-            inter_features=param.HyperParameter.arch_param.inter_features,
-            activation=activation,
-            norm=param.HyperParameter.arch_param.norm,
-            norm_groups=param.HyperParameter.arch_param.norm_groups,
-            norm_head=param.HyperParameter.arch_param.norm_head,
-            norm_head_groups=param.HyperParameter.arch_param.norm_head_groups,
-            pool_mode=param.HyperParameter.arch_param.pool_mode,
-            upsample_mode=param.HyperParameter.arch_param.upsample_mode,
-            skip_gn_level=param.HyperParameter.arch_param.skip_gn_level,
-            disabled_attributes=param.HyperParameter.disabled_attributes,
-            kaiming_normal=param.HyperParameter.arch_param.init_custom
+            ch_in=               param.HyperParameter.channels_in,
+            depth_shared=        param.HyperParameter.arch_param.depth_shared,
+            depth_union=         param.HyperParameter.arch_param.depth_union,
+            initial_features=    param.HyperParameter.arch_param.initial_features,
+            inter_features=      param.HyperParameter.arch_param.inter_features,
+            activation=          activation,
+            norm=                param.HyperParameter.arch_param.norm,
+            norm_groups=         param.HyperParameter.arch_param.norm_groups,
+            norm_head=           param.HyperParameter.arch_param.norm_head,
+            norm_head_groups=    param.HyperParameter.arch_param.norm_head_groups,
+            pool_mode=           param.HyperParameter.arch_param.pool_mode,
+            upsample_mode=       param.HyperParameter.arch_param.upsample_mode,
+            skip_gn_level=       param.HyperParameter.arch_param.skip_gn_level,
+            disabled_attributes= param.HyperParameter.disabled_attributes,
+            kaiming_normal=      param.HyperParameter.arch_param.init_custom
         )
 
     @staticmethod

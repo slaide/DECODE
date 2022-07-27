@@ -135,12 +135,14 @@ class DoubleMUnet(nn.Module):
                  norm_head_groups=None, pool_mode='Conv2d', upsample_mode='bilinear', skip_gn_level=None, disabled_attributes=None):
         super().__init__()
 
+        # unet that is applied to each input image
         self.unet_shared = unet_param.UNet2d(1 + ext_features, inter_features, depth=depth_shared, pad_convs=True,
                                              initial_features=initial_features,
                                              activation=activation, norm=norm, norm_groups=norm_groups,
                                              pool_mode=pool_mode, upsample_mode=upsample_mode,
                                              skip_gn_level=skip_gn_level)
 
+        # combines all input images after first unet into one layer to compute one combinated output through this additional network
         self.unet_union = unet_param.UNet2d(ch_in * inter_features, inter_features, depth=depth_union, pad_convs=True,
                                             initial_features=initial_features,
                                             activation=activation, norm=norm, norm_groups=norm_groups,
@@ -195,7 +197,7 @@ class DoubleMUnet(nn.Module):
 
     def rescale_last_layer_grad(self, loss, optimizer):
         """
-        Rescales the weight as by the last layer's gradient
+        Rescales the weight by the last layer's gradient
 
         Args:
             loss:
