@@ -14,23 +14,16 @@ import scipy.io
 class Entry:
     def __init__(self,model_file,param_file):
         self.model_file=Path(model_file)
-        assert self.model_file.exists() and self.model_file.is_file()
+        assert self.model_file.exists() and self.model_file.is_file(), f"DECODE model file not found {model_file}"
 
         self.param_file=Path(param_file)
-        assert self.param_file.exists() and self.param_file.is_file()
+        assert self.param_file.exists() and self.param_file.is_file(), f"param file not found {param_file}"
 
         self.raw_params=decode.utils.read_params(self.param_file)
 
-        sim_train, sim_test = setup_masked_simulation(self.raw_params)
+        self.sim_train, _sim_test = setup_masked_simulation(self.raw_params)
 
-        self.sim_train=sim_train
-        self.sim_test=sim_test
-
-        assert sim_train.em_sampler.intensity_dist_type=="discrete"
-        #set scaling parameter manually
-        self.raw_params.Simulation.intensity_mu_sig=sim_train.em_sampler._intensity_mu_sig()
-
-        self.params = decode.utils.param_io.autoset_scaling(self.raw_params)
+        self.params = self.raw_params if 1 else decode.utils.param_io.autoset_scaling(self.raw_params)
 
         self.camera = decode.simulation.camera.Photon2Camera.parse(self.params)
 
@@ -38,8 +31,8 @@ class Entry:
 
         model_archs_available = {
             'SigmaMUNet': decode.neuralfitter.models.SigmaMUNet,
-            'DoubleMUnet': decode.neuralfitter.models.model_param.DoubleMUnet,
-            'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
+            #'DoubleMUnet': decode.neuralfitter.models.model_param.DoubleMUnet,
+            #'SimpleSMLMNet': decode.neuralfitter.models.model_param.SimpleSMLMNet,
         }
 
         model_arch = model_archs_available[self.params.HyperParameter.architecture].parse(self.params)

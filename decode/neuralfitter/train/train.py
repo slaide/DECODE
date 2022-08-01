@@ -77,7 +77,7 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
     # setup simulation out of order here because parameters required for auto_scaling are derived here
     sim_train, sim_test = setup_masked_simulation(param)
 
-    assert sim_train.em_sampler.intensity_dist_type=="discrete"
+    #assert sim_train.em_sampler.intensity_dist_type=="discrete"
 
     # auto-set some parameters (will be stored in the backup copy)
     #param = decode.utils.param_io.autoset_scaling(param)

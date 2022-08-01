@@ -301,20 +301,20 @@ class MaskedEmitterSampler:
         """
 
         self.num_frames = num_frames
-        self.intensity_mu_sig = intensity_mu_sig
-        if isinstance(self.intensity_mu_sig[0],float):
-            assert False
+        #self.intensity_mu_sig = intensity_mu_sig
+        #if isinstance(self.intensity_mu_sig[0],float):
+        #    assert False
 
-            assert isinstance(self.intensity_mu_sig[1],float)
-            self.intensity_dist_type="normal"
-            self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
-                                                                    self.intensity_mu_sig[1])
-        else:
-            assert isinstance(self.intensity_mu_sig[0],str)
-            assert isinstance(self.intensity_mu_sig[1],str)
-            self.intensity_dist_type="discrete"
-            self.intensity_dist=DiscreteEmitterIntensitySampler(self.intensity_mu_sig[0],
-                                                                self.intensity_mu_sig[1])
+        #    assert isinstance(self.intensity_mu_sig[1],float)
+        #    self.intensity_dist_type="normal"
+        #    self.intensity_dist = torch.distributions.normal.Normal(self.intensity_mu_sig[0],
+        #                                                            self.intensity_mu_sig[1])
+        #else:
+        #    assert isinstance(self.intensity_mu_sig[0],str)
+        #    assert isinstance(self.intensity_mu_sig[1],str)
+        #    self.intensity_dist_type="discrete"
+        #    self.intensity_dist=DiscreteEmitterIntensitySampler(self.intensity_mu_sig[0],
+        #                                                        self.intensity_mu_sig[1])
 
         self.intensity_th = intensity_th
         self.zextent=z_range
