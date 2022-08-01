@@ -5,43 +5,36 @@ import setuptools
 
 from setuptools import setup
 
-# requirements when building the wheel via pip; conda install uses
-#   info in meta.yaml instead; we're supporting multiple environments, thus
-#   we have to accept some duplication (or near-duplication), unfortunately;
-#   however, if conda sees the requirements here, it will be unhappy
-if "CONDA_BUILD" in os.environ:
-    # conda requirements set in meta.yaml
-    requirements = []
-else:
-    # pip needs requirements here; keep in sync with meta.yaml!
-    requirements = [
-        "numpy",
-        "torch>=1.7.1",
-        "click",
-        "deprecated",
-        "gitpython>=3.1",
-        "h5py",
-        "importlib_resources",
-        "matplotlib",
-        "pandas",
-        "pytest",
-        "pyyaml",
-        "requests",
-        "scipy",
-        "seaborn==0.10",
-        "scikit-image",
-        "scikit-learn",
-        "tensorboard",
-        "tifffile",
-        "tqdm",
-        "torchvision",
-        "opencv-python",
-        "edt",
-    ]
+# pip needs requirements here; keep in sync with meta.yaml!
+requirements = [
+    "numpy",
+    "torch@https://download.pytorch.org/whl/cu110/torch-1.7.0%2Bcu110-cp38-cp38-linux_x86_64.whl",
+    "torchaudio==0.7.0", # somehow required, and also needs to match torch version (intentionally off by one major version)
+    "click",
+    "deprecated",
+    "gitpython>=3.1",
+    "h5py",
+    "importlib_resources",
+    "matplotlib",
+    "pandas",
+    "pytest",
+    "pyyaml",
+    "requests",
+    "scipy",
+    "seaborn==0.10",
+    "scikit-image",
+    "scikit-learn",
+    "tensorboard",
+    "tifffile",
+    "tqdm",
+    "torchvision",
+    "opencv-python",
+    "edt",
+]
 
 setup(
     name='decode',
-    version='0.11.1',  # do not modify by hand set and sync with bumpversion
+    version='0.11.1',
     packages=setuptools.find_packages(),
     include_package_data=True,
     install_requires=requirements,
