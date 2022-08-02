@@ -8,7 +8,7 @@ from setuptools import setup
 # pip needs requirements here; keep in sync with meta.yaml!
 requirements = [
     "numpy",
-    # require torch 1.7.0 because 1.8+ breaks the neural network internally somewhere
+    # require torch 1.7 because 1.8+ breaks the neural network internally somewhere
     "torch@https://download.pytorch.org/whl/cu110/torch-1.7.1%2Bcu110-cp38-cp38-linux_x86_64.whl",
     "torchaudio==0.7.2", # needs to be compatible with torch version
     "torchvision==0.8.2", # also needs to be compatible with torch version
