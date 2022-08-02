@@ -170,7 +170,7 @@ class SimpleWeight(WeightGenerator):
 
         weight_frames[:, 1:-1] = roi_frames.unsqueeze(1)
 
-        return self._postprocess_output(weight_frames)
+        return self._squeeze_batch(weight_frames)
 
 
 @deprecated(reason="Preliminary implementation. Kept if usefuel in future.", version="0.9")
@@ -252,4 +252,4 @@ class FourFoldSimpleWeight(WeightGenerator):
         if tar_frames.size(1) == 21:
             weight = torch.cat((weight, torch.ones_like(tar_frames[:, [20]])), 1)
 
-        return self._postprocess_output(weight)  # return in dimensions of input frame
+        return self._squeeze_batch(weight)  # return in dimensions of input frame

@@ -58,21 +58,15 @@ class Entry:
 
         dim0_list=list(range(0,fluor_image.shape[1],a))
         dim1_list=list(range(0,fluor_image.shape[0],b))
-        #if dim0_list[-1]<fluor_image.shape[1]:
-        #    dim0_list.append(fluor_image.shape[0])
-        #if dim1_list[-1]<fluor_image.shape[0]:
-        #    dim1_list.append(fluor_image.shape[1])
 
         total_num_snippets=len(dim0_list)*len(dim1_list)
 
-        offsets0=numpy.expand_dims(numpy.concatenate([[0],numpy.array([a]).repeat(len(dim1_list)-1)]).cumsum(),0).repeat(len(dim0_list),0).flatten()
-        offsets1=(numpy.array([b]).repeat(len(dim0_list)).cumsum()-b).repeat(len(dim1_list))
+        offsets0=[] #numpy.expand_dims(numpy.concatenate([[0],numpy.array([a]).repeat(len(dim1_list)-1)]).cumsum(),0).repeat(len(dim0_list),0).flatten()
+        offsets1=[] #(numpy.array([b]).repeat(len(dim0_list)).cumsum()-b).repeat(len(dim1_list))
 
-        #apply model to input
+        #copy input image into snippets fit for model consumption
         batch_size=self.params.HyperParameter.batch_size
-        snippets=numpy.zeros((total_num_snippets,1,a,b))
-
-        #print(f"{total_num_snippets=} {batch_size=}")
+        snippets=numpy.zeros((total_num_snippets if total_num_snippets%batch_size==0 else total_num_snippets+(batch_size-total_num_snippets%batch_size),1,a,b),dtype=numpy.float32)
 
         snippet_index=0
         for i in dim0_list:
@@ -80,11 +74,17 @@ class Entry:
                 from_ax0=(i,i+a)
                 from_ax1=(j,j+b)
 
+                offsets1.append(i)
+                offsets0.append(j)
+
                 fluor_image_snippet=fluor_image[from_ax1[0]:from_ax1[1],from_ax0[0]:from_ax0[1]]
                 # partial snippets are not discarded or shifted
                 snippets[snippet_index,0,:fluor_image_snippet.shape[0],:fluor_image_snippet.shape[1]]=fluor_image_snippet
                 
                 snippet_index+=1
+
+        offsets0=numpy.array(offsets0)
+        offsets1=numpy.array(offsets1)
 
         # if size of image does not fit into the number of snippets contained in a single batch, apply decode to all batches, then combine results
         if total_num_snippets<batch_size:
@@ -98,18 +98,13 @@ class Entry:
                 result=self.model.forward(model_input_snippets)
                 em_out=self.post_processor.forward(result)
         else:
-            for i in range(0,total_num_snippets,batch_size):
+            for i in range(0,snippets.shape[0],batch_size):
                 model_input_snippets=self.frame_proc.forward(torch.from_numpy(snippets[i:i+batch_size]).to(self.device).float())
-
-                #plt.imshow(model_input_snippets.cpu()[0,0])
-                #plt.colorbar()
-                #plt.show()
 
                 with torch.no_grad():
                     partial_result=self.model.forward(model_input_snippets)
                     partial_em_out=self.post_processor.forward(partial_result)
-                    if i>0:
-                        partial_em_out.frame_ix[:]+=batch_size
+                    partial_em_out.frame_ix[:]+=i
 
                 if i==0:
                     em_out=partial_em_out

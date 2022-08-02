@@ -61,7 +61,7 @@ class TargetGenerator(ABC):
 
         return em, ix_low, ix_high
 
-    def _postprocess_output(self, x: torch.Tensor) -> torch.Tensor:
+    def _squeeze_batch(self, x: torch.Tensor) -> torch.Tensor:
         """
         Some simple post-processual steps before return.
 
@@ -224,10 +224,10 @@ class UnifiedEmbeddingTarget(TargetGenerator):
         batch_size = ix_high - ix_low + 1
 
         target = torch.zeros((batch_size, 5, *self.img_shape))
-        target[:, 0] = self.single_px_target(frame_ix, x_ix, y_ix, batch_size)
-        target[:, 1] = self.const_roi_target(batch_ix_roi, x_ix_roi, y_ix_roi, phot, id, batch_size)
+        target[:, 0] =   self.single_px_target(frame_ix, x_ix, y_ix, batch_size)
+        target[:, 1] =   self.const_roi_target(batch_ix_roi, x_ix_roi, y_ix_roi, phot, id, batch_size)
         target[:, 2:4] = self.xy_target(batch_ix_roi, x_ix_roi, y_ix_roi, xyz[:, :2], id, batch_size)
-        target[:, 4] = self.const_roi_target(batch_ix_roi, x_ix_roi, y_ix_roi, xyz[:, 2], id, batch_size)
+        target[:, 4] =   self.const_roi_target(batch_ix_roi, x_ix_roi, y_ix_roi, xyz[:, 2], id, batch_size)
 
         return target
 
@@ -238,7 +238,7 @@ class UnifiedEmbeddingTarget(TargetGenerator):
         if bg is not None:
             target = torch.cat((target, bg.unsqueeze(0).unsqueeze(0)), 1)
 
-        return self._postprocess_output(target)
+        return self._squeeze_batch(target)
 
 
 class ParameterListTarget(TargetGenerator):
@@ -300,7 +300,7 @@ class ParameterListTarget(TargetGenerator):
             param_tar[i, :n_emitter, 0] = em[ix].phot
             param_tar[i, :n_emitter, 1:] = xyz[ix]
 
-        return self._postprocess_output(param_tar), self._postprocess_output(mask_tar), bg
+        return self._squeeze_batch(param_tar), self._squeeze_batch(mask_tar), bg
 
 
 class DisableAttributes:
@@ -417,4 +417,4 @@ class FourFoldEmbedding(TargetGenerator):
         if bg is not None:
             target = torch.cat((target, bg.unsqueeze(0).unsqueeze(0)), 1)
 
-        return self._postprocess_output(target)
+        return self._squeeze_batch(target)

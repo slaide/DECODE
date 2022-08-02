@@ -2,8 +2,9 @@ import decode
 from decode.utils.entry import Entry
 import scipy.io
 import argparse
+import skimage
 
-# use like this yenv exec python -m decode.utils.cli_entry /home/patrick/code/test_decode/out/new_cell_background/model_2.pt /home/patrick/code/test_decode/out/new_cell_background/param_run_in.yaml experiments/BY8853_with_dots/BY8853/EXP-22-BY8853/Run/Pos01/fluor515/img_000000000.tiff -o eval/results_for_one_image.mat
+# use like this: pyenv exec python -m decode.utils.cli_entry /home/patrick/code/test_decode/out/new_cell_background/model_2.pt /home/patrick/code/test_decode/out/new_cell_background/param_run_in.yaml experiments/BY8853_with_dots/BY8853/EXP-22-BY8853/Run/Pos01/fluor515/img_000000000.tiff -o eval/results_for_one_image.mat
 
 parser=argparse.ArgumentParser(description="apply DECODE to an image")
 parser.add_argument("model_file",help="DECODE model file (file.pt)")
@@ -19,13 +20,10 @@ entry=Entry(
     param_file=args.param_file,
 )
 
-image_adu=decode.utils.img_file_io.read_img(args.image_file)[1000:,:]
-coords=entry.localize(image_adu)
+#minx,miny,maxx,maxy=(262,1140,1081,2040) # maybe user-definable ROI? output coordinates would need to be adjusted
 
-import matplotlib.pyplot as plt
-plt.imshow(image_adu)
-plt.scatter(coords.xyz_px[:,1],coords.xyz_px[:,0])
-plt.show()
+image_adu=skimage.io.imread(args.image_file, plugin="tifffile", as_gray = True)
+coords=entry.localize(image_adu)
 
 scipy.io.savemat(args.output_file,{
     'coords_xyz_px':coords.xyz_px.cpu().numpy(),

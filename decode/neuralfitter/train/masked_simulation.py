@@ -11,7 +11,7 @@ def setup_masked_simulation(param):
         1. Define our struture from which we sample (random prior in 3D) and its photophysics
         2. Define background and noise
         3. Setup simulation and datasets
-        """
+    """
 
     """ frame ranges """
 

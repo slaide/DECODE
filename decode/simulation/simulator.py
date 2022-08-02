@@ -135,7 +135,14 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, segmentation_masks_glob:str, psf: psf_kernel.PSF, em_sampler, num_frames: int, frame_size:Tuple[int,int], noise, device:Union[str,torch.device]="cpu",background_args=None):
+    def __init__(self, segmentation_masks_glob:str, psf: psf_kernel.PSF, 
+        em_sampler, 
+        num_frames: int, 
+        frame_size:Tuple[int,int], 
+        noise, # camera
+        device:Union[str,torch.device]="cpu", 
+        background_args=None
+    ):
         """
         Init Simulation.
 
