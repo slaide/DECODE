@@ -12,7 +12,7 @@ import scipy.io
 #  pyenv exec python -m decode.neuralfitter.train.train -p konrads_params.yaml -l out
 
 class Entry:
-    def __init__(self,model_file,param_file):
+    def __init__(self,model_file,param_file,device):
         self.model_file=Path(model_file)
         assert self.model_file.exists() and self.model_file.is_file(), f"DECODE model file not found {model_file}"
 
@@ -27,7 +27,7 @@ class Entry:
 
         self.camera = decode.simulation.camera.Photon2Camera.parse(self.params)
 
-        self.device=torch.device(self.params.Hardware.device)
+        self.device=torch.device(device)
 
         model_archs_available = {
             'SigmaMUNet': decode.neuralfitter.models.SigmaMUNet,
