@@ -1,15 +1,21 @@
-import numpy
-import matplotlib.pyplot as plt
-import decode
-import torch
 from pathlib import Path
+from argparse import ArgumentParser
 from tqdm import tqdm
-import pickle # to cache results
-from decode.neuralfitter.train.masked_simulation import setup_masked_simulation
-import scipy.io
 
-# continue training from a previous snapshot like this:
-#  pyenv exec python -m decode.neuralfitter.train.train -p konrads_params.yaml -l out
+import torch
+import numpy
+
+from scipy.io import savemat
+from skimage.io import imread
+
+import decode
+
+# use like this: 
+# $ pyenv exec python -m decode.utils.cli_entry \
+# decode_models/new_cell_background/model_2.pt \
+# decode_models/new_cell_background/param_run_in.yaml \
+# experiments/EXP-22-BY8853/Run/Pos01/fluor515/img_000000000.tiff \
+# -o eval/results_for_one_image.mat
 
 class Entry:
     def __init__(self,model_file,param_file,device):
@@ -109,3 +115,41 @@ class Entry:
 
         return em_out
 
+if __name__=="__main__":
+    parser=ArgumentParser(description="apply DECODE to an image")
+    parser.add_argument("model",help="DECODE model (file.pt)")
+    parser.add_argument("parameters",help="DECODE parameters (file.yaml)")
+    parser.add_argument("image",help="image file (image.tif / image.tiff)")
+    parser.add_argument("-d","--device",default="cuda",choices=["cpu","cuda","cuda:0","cuda:1"],help="hardware decide to run localization on")
+    parser.add_argument("-o","--output_file",help="file that will contain all emitter data",required=True)
+
+    args=parser.parse_args()
+
+    assert args.image[-5:]==".tiff" or args.image[-4:]==".tif", f"image file must be .tif/.tiff file, but is: '{args.image}'"
+    assert args.output_file[-4:]==".mat", f"output filename must be a .mat file, but is: '{args.output_file}'"
+
+    entry=Entry(
+        model_file=args.model,
+        param_file=args.parameters,
+        device=args.device,
+    )
+
+    # minx,miny,maxx,maxy=(262,1140,1081,2040) # maybe user-definable ROI? output coordinates would need to be adjusted
+
+    image_adu=imread(args.image, plugin="tifffile", as_gray = True)
+    
+    coords=entry.localize(image_adu)
+
+    # switch x and y axis to match matlabs coordinate format
+    coords.xyz_px[:,[0,1]]=coords.xyz_px[:,[1,0]]
+    coords.xyz_sig[:,[0,1]]=coords.xyz_sig[:,[1,0]]
+
+    # add offfset because in matlab the 'top left of the most top left pixel is .5,.5, not .0,.0
+    coords.xyz_px[:,:2]+=0.5
+
+    savemat(args.output_file,{
+        'coords_xyz_px':coords.xyz_px.cpu().numpy(),
+        'brightness':coords.phot.cpu().numpy(),
+        'probability':coords.prob.cpu().numpy(),
+        'xyz_err':coords.xyz_sig.cpu().numpy(),
+    })

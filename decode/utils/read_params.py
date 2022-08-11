@@ -4,7 +4,11 @@ from typing import Union
 import decode
 from decode.utils.types import RecursiveNamespace
 
+
 def read_params(path:Union[str,Path]):
+  """
+  workaround for several bugs and inconveniences is DECODE
+  """
   if isinstance(path,str):
     path=Path(path)
 
@@ -33,6 +37,9 @@ def read_params(path:Union[str,Path]):
       param.Simulation.img_size[1]
     )
   )
+
+  param.TestSet=RecursiveNamespace()
+  param.TestSet.test_size=512
 
   # this needs to be specified to allow setting img_size to something other than 40x40
   param.TestSet.img_size=param.Simulation.img_size

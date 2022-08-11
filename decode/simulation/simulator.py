@@ -96,28 +96,27 @@ from pathlib import Path
 import numpy
 import edt
 
-from decode.utils.img_file_io import read_img
+import skimage.io
 
 """ generator that yields cell mask snippets (and if requested, the corresponding phase contrast snippets) """
 def sample_cell_masks(mask_list) -> Generator[numpy.array,None,None]:
     assert len(mask_list)>0
     while True:
         for mask in mask_list:
-            cell_mask_image=read_img(mask,from_dtype="float32",to_dtype="float32")
+            cell_mask_image=skimage.io.imread(mask,as_gray=True).astype(numpy.float32)
 
             yield cell_mask_image
 
 from time import perf_counter
 from decode.generic import EmitterSet
-import matplotlib.pyplot as plt
 import decode
 import glob
 from skimage.measure import label, regionprops
 from skimage import filters
 import time
-import multiprocessing
+import threading as td
+import multiprocessing as mp
 import multiprocessing.shared_memory
-import threading
 
 class MaskedSimulation:
     """
@@ -185,6 +184,35 @@ class MaskedSimulation:
         single_frame_emitter_set, frames, frames_bg = self.forward(mask, device=self.device)
 
         return single_frame_emitter_set,mask,frames,frames_bg
+
+    def sample_parallel(self):
+        queue=mp.Queue()
+        lock=mp.Lock()
+        lock.acquire()
+
+        def sample_in_parallel():
+            while True:
+                queue.put(self.sample())
+                lock.acquire()
+                lock.release()
+
+        proc=mp.Process(target=sample_in_parallel)
+        proc.start()
+
+        try:
+            while True:
+                lock.release()
+
+                emitter_set, frames, frames_bg=queue.get()
+
+                emitter_set, frames, frames_bg = emitter_set.clone(), frames.detach().clone(), frames_bg.detach().clone()
+
+                yield emitter_set, frames, frames_bg
+
+                lock.acquire()
+        except:
+            proc.terminate()
+            proc.join()
 
     def sample(self):
         """
@@ -328,7 +356,7 @@ class MaskedSimulation:
         extent_y0_list=numpy.clip(em_xyz_px_int[:,1] - (psf_width//2 + 2), a_min=0, a_max=None)
         extent_y1_list=numpy.clip(em_xyz_px_int[:,1] + (psf_width//2 + 2), a_min=None, a_max=mask.shape[1])
 
-        # scale a threshold to fit current brightness (threshold was manully determined to be 0.4 for an emitter brightness of 1e3)
+        # alternate between different PSFs that were provided
         if self.last_psf_index==len(self.psf)-1:
             self.last_psf_index=0
         else:
@@ -336,73 +364,37 @@ class MaskedSimulation:
 
         psf=self.psf[self.last_psf_index]
 
+        # scale a threshold to fit current brightness (threshold was manully determined to be 0.4 for an emitter brightness of 1e3)
         psf_background_list=psf.background_offset*em_phot.numpy()
         # (this is a different threshold value that was manually determined)
         psf_threshold=0.0
-        def get_emitter_frames(start,end,memory):
-            for i in range(start,end):
-                new_frame=psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
 
-                extent_x0=extent_x0_list[i]
-                extent_x1=extent_x1_list[i]
-                extent_y0=extent_y0_list[i]
-                extent_y1=extent_y1_list[i]
+        for i in range(0,em_xyz_px.shape[0]):
+            new_frame=psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
 
-                # only operate on dot region (+small buffer) for better performance
-                snippet=new_frame[0,extent_x0:extent_x1,extent_y0:extent_y1]
-                # remove some manually determined background noise from partially wrongly approximated psf
-                snippet-=psf_background_list[i]
-                # remove some additional noise by thresholding
-                snippet[snippet<psf.background_threshold]=0
-                # scale to match expected brightness of emitter
-                snippet*=em_phot[i].item()/snippet.sum()
+            extent_x0=extent_x0_list[i]
+            extent_x1=extent_x1_list[i]
+            extent_y0=extent_y0_list[i]
+            extent_y1=extent_y1_list[i]
 
-                if i==start:
-                    emitter_frames:torch.Tensor = new_frame
-                else:
-                    emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
+            # only operate on dot region (+small buffer) for better performance
+            snippet=new_frame[0,extent_x0:extent_x1,extent_y0:extent_y1]
+            # remove some manually determined background noise from partially wrongly approximated psf
+            snippet-=psf_background_list[i]
+            # remove some additional noise by thresholding
+            snippet[snippet<psf.background_threshold]=0
+            # scale to match expected brightness of emitter
+            snippet*=em_phot[i].item()/snippet.sum()
 
-            memory[:]=emitter_frames[0,:]
+            if i==0:
+                emitter_frames:torch.Tensor = new_frame
+            else:
+                emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
 
-        # this is sometimes up to 15% faster
-        num_threads=3
-
-        points=numpy.linspace(0,em_xyz_px.shape[0],num_threads+1,dtype=int)
-
-        memory=[
-            multiprocessing.shared_memory.SharedMemory(create=True,size=mask.nbytes)
-            for _ in range(num_threads)
-        ]
-        processes=[
-            multiprocessing.Process(
-                target=get_emitter_frames,
-                args=(points[p],points[p+1],numpy.ndarray(mask.shape,mask.dtype,buffer=memory[p].buf))
-            ) 
-            for p in range(num_threads)
-        ]
-
-        for p in processes:
-            p.start()
-
-        # run first step of background simulation on main thread while waiting for emitter/dot simulation
         environmental_background_value=self.environmental_background
         environmental_background_value=torch.distributions.uniform.Uniform(0.5,5.0).sample((1,)).item()
         bg_frames=filters.gaussian(mask,self.gaussian_width)+environmental_background_value
         bg_frames=torch.from_numpy(bg_frames).to(device)
-
-        for p in processes:
-            p.join()
-
-        emitter_frames=numpy.ndarray(mask.shape,mask.dtype,buffer=memory[0].buf)
-        for t in range(1,num_threads):
-            emitter_frames+=numpy.ndarray(mask.shape,mask.dtype,buffer=memory[t].buf)
-
-        emitter_frames=emitter_frames.copy()
-        emitter_frames=torch.from_numpy(emitter_frames).reshape((1,mask.shape[0],mask.shape[1]))
-
-        for m in memory:
-            m.close()
-            m.unlink()
         
         # in decode, poisson noise is applied to background AND emitters
         # seems counter-intuitive, but that actually looks more realistic

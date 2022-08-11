@@ -22,8 +22,6 @@ import cv2 as cv # for cv.warpPerspective
 
 from typing import Tuple, List, Optional
 
-from decode.utils.img_file_io import read_img, write_img
-
 from time import perf_counter
 from tqdm import tqdm
 
@@ -61,7 +59,7 @@ class SegmentDirectory(Dataset):
 
         i_batch,phase_img_path=self.indices[idx]
 
-        phase_img = read_img(str(phase_img_path),from_dtype="u16",to_dtype="float32")
+        phase_img = skimage.io.imread(str(phase_img_path),as_gray=True).astype(numpy.float32)/2**16
         phase_img=phase_img+numpy_rng.normal(scale=0.03,size=phase_img.shape).astype(dtype=numpy.float32)
         phase_img=phase_img.clip(0.0,1.0) # clip to [0.0,1.0] range because added noise might exceed 1.0
 
@@ -163,7 +161,7 @@ def generate_cell_masks(
 
         if len(dataset)>0:
             batch_size=1
-            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=6)
+            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=1)
 
             with torch.no_grad():
                 for i_batch, data in tqdm(dataloader,desc="dist+crop",leave=False,unit="img"):
@@ -218,7 +216,6 @@ def generate_cell_masks(
                         assert cell_mask_img.sum()>0
 
                         cell_mask_path=warped_masks_dir/f"dist_mask_{i_batch[ds_index]:08}.tiff"
-                        #write_img(cell_mask_path, cell_mask_img, from_dtype="float32", as_dtype="float32")
 
                         """ align segmentation mask with fluorescence image, and crop both to the relevant ROI """
                         cropped_warped_mask_path=warped_masks_dir/cell_mask_path.name
@@ -227,7 +224,7 @@ def generate_cell_masks(
 
                         if not cropped_warped_mask_path.exists() or not cropped_fluor_path.exists():
                             # transform phase contrast image to be aligned with the fluorescence image
-                            fluor_image=read_img(fluor_image_path,from_dtype="u12",to_dtype="u12")
+                            fluor_image=skimage.io.imread(fluor_image_path,as_gray=True)
 
                             if not cropped_warped_mask_path.exists():
                                 warped_mask=numpy.zeros_like(fluor_image,dtype=numpy.float32)
@@ -236,12 +233,12 @@ def generate_cell_masks(
 
                                 #assert cropped_warped_mask.any(), "warping mask image resulted in black image (all pixel values 0)"
                                 
-                                write_img(cropped_warped_mask_path, cropped_warped_mask, from_dtype="float32", as_dtype="float32")
+                                skimage.io.imwrite(cropped_warped_mask_path, cropped_warped_mask)
                             
                             if not cropped_fluor_path.exists():
                                 # write cropped fluorescence that corresponds to the image region the phase contrast image was mapped onto
                                 cropped_fluor=fluor_image[y_min:y_max,x_min:x_max]
-                                write_img(cropped_fluor_path, cropped_fluor, from_dtype="u12", as_dtype="u12")
+                                skimage.io.imwrite(cropped_fluor_path, cropped_fluor)
 
     # clear vram
     del net

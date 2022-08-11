@@ -77,11 +77,6 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
     # setup simulation out of order here because parameters required for auto_scaling are derived here
     sim_train, sim_test = setup_masked_simulation(param)
 
-    #assert sim_train.em_sampler.intensity_dist_type=="discrete"
-
-    # auto-set some parameters (will be stored in the backup copy)
-    #param = decode.utils.param_io.autoset_scaling(param)
-
     # add meta information
     param.Meta.version = decode.utils.bookkeeping.decode_state()
 
@@ -287,7 +282,7 @@ def live_engine_setup(param_file: Union[str,Path], device_overwrite: str = None,
                           log=logger.logger[1].log_dict, step=i)
 
             """Draw new samples Samples"""
-            if param.Simulation.mode in 'acquisition':
+            if param.Simulation.mode in ('acquisition','parallel'):
                 ds_train.sample(True)
             elif param.Simulation.mode != 'samples':
                 raise ValueError
@@ -413,18 +408,21 @@ def setup_trainer(simulator_train, simulator_test, logger, model_out, ckpt_path,
             return_em=False)
 
         train_ds.sample(True)
-
-    elif param.Simulation.mode == 'samples':
-        train_ds = decode.neuralfitter.dataset.SMLMLiveSampleDataset(
+    elif param.Simulation.mode == 'parallel':
+        train_ds = decode.neuralfitter.dataset.SMLMParallelDataset(
             simulator=simulator_train,
             em_proc=em_filter,
             frame_proc=frame_proc,
             bg_frame_proc=bg_frame_proc,
-            tar_gen=tar_gen,
+            tar_gen=tar_gen, 
             weight_gen=None,
             frame_window=param.HyperParameter.channels_in,
-            return_em=False,
-            ds_len=param.HyperParameter.pseudo_ds_size)
+            pad=None, 
+            return_em=False)
+
+        train_ds.sample(True)
+    else:
+        raise RuntimeError()
 
     test_ds = decode.neuralfitter.dataset.SMLMAPrioriDataset(
         simulator=simulator_test,

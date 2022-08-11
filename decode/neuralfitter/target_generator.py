@@ -288,17 +288,20 @@ class ParameterListTarget(TargetGenerator):
             raise NotImplementedError
 
         """Set number of active elements per frame"""
-        for i in range(n_frames):
-            n_emitter = len(em.get_subset_frame(i, i))
+        # sometimes there are no emitters
+        if xyz.shape[0]>0:
+            frame_frequencies=torch.bincount(em.frame_ix.detach().cpu())
+            if (frame_frequencies>self.n_max).any():
+                raise ValueError(f"Number of actual emitters exceeds number of max. emitters frame_frequencies {frame_frequencies=} {frame_frequencies.max()} > {self.n_max}.")
 
-            if n_emitter > self.n_max:
-                raise ValueError(f"Number of actual emitters exceeds number of max. emitters {n_emitter} > {self.n_max}.")
+            for i in range(n_frames):
+                n_emitter = frame_frequencies[i]
+    
+                mask_tar[i, :n_emitter] = 1
 
-            mask_tar[i, :n_emitter] = 1
-
-            ix = em.frame_ix == i
-            param_tar[i, :n_emitter, 0] = em[ix].phot
-            param_tar[i, :n_emitter, 1:] = xyz[ix]
+                ix = em.frame_ix == i
+                param_tar[i, :n_emitter, 0] = em[ix].phot
+                param_tar[i, :n_emitter, 1:] = xyz[ix]
 
         return self._squeeze_batch(param_tar), self._squeeze_batch(mask_tar), bg
 

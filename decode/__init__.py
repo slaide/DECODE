@@ -17,7 +17,6 @@ import decode.neuralfitter
 import decode.plot
 import decode.renderer
 import decode.simulation
-from decode.generic.emitter import EmitterSet, RandomEmitterSet, CoordinateOnlyEmitter
 
 # check device capability
 import torch

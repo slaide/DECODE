@@ -18,7 +18,7 @@ def setup_masked_simulation(param):
     if not isinstance(param,RecursiveNamespace):
         param=read_params(param)
 
-    if param.Simulation.mode in ("acquisition", "apriori"):
+    if param.Simulation.mode in ("acquisition", "parallel"):
         frame_range_train = (0, param.HyperParameter.pseudo_ds_size) # sample this many frames
     else:
         raise ValueError
