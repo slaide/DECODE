@@ -1,5 +1,5 @@
 import torch
-from typing import Tuple, Union, Generator, Optional
+from typing import Tuple, Union, Generator, Optional, List
 
 from ..generic import EmitterSet
 from . import psf_kernel
@@ -135,7 +135,8 @@ class MaskedSimulation:
         noise (Noise): noise implementation
     """
 
-    def __init__(self, segmentation_masks_glob:str, psf: psf_kernel.PSF, 
+    def __init__(self, segmentation_masks_glob:str, 
+        psf: List[psf_kernel.PSF], 
         em_sampler, 
         num_frames: int, 
         frame_size:Tuple[int,int], 
@@ -158,6 +159,8 @@ class MaskedSimulation:
         self.num_frames = num_frames
 
         self.psf = psf
+        self.last_psf_index=0
+
         self.noise = noise
 
         self.frame_size=frame_size
@@ -176,7 +179,7 @@ class MaskedSimulation:
 
         # try sampling cell mask. if (internal) iteration stops, restart
         mask=self.mask_sampler.__next__()
-        mask*=self.mean_brightness_per_volume
+        #mask*=self.mean_brightness_per_volume
 
         # forward emitter position through image simulation pipeline
         single_frame_emitter_set, frames, frames_bg = self.forward(mask, device=self.device)
@@ -319,18 +322,26 @@ class MaskedSimulation:
 
         em_xyz_px_int=em_xyz_px.numpy().astype(dtype=int)
 
-        extent_x0_list=numpy.clip(em_xyz_px_int[:,0] - (45//2 + 2), a_min=0, a_max=None)
-        extent_x1_list=numpy.clip(em_xyz_px_int[:,0] + (45//2 + 2), a_min=None, a_max=mask.shape[0])
-        extent_y0_list=numpy.clip(em_xyz_px_int[:,1] - (45//2 + 2), a_min=0, a_max=None)
-        extent_y1_list=numpy.clip(em_xyz_px_int[:,1] + (45//2 + 2), a_min=None, a_max=mask.shape[1])
+        psf_width=45
+        extent_x0_list=numpy.clip(em_xyz_px_int[:,0] - (psf_width//2 + 2), a_min=0, a_max=None)
+        extent_x1_list=numpy.clip(em_xyz_px_int[:,0] + (psf_width//2 + 2), a_min=None, a_max=mask.shape[0])
+        extent_y0_list=numpy.clip(em_xyz_px_int[:,1] - (psf_width//2 + 2), a_min=0, a_max=None)
+        extent_y1_list=numpy.clip(em_xyz_px_int[:,1] + (psf_width//2 + 2), a_min=None, a_max=mask.shape[1])
 
         # scale a threshold to fit current brightness (threshold was manully determined to be 0.4 for an emitter brightness of 1e3)
-        psf_background_list=(0.4/1e3*em_phot).numpy()
+        if self.last_psf_index==len(self.psf)-1:
+            self.last_psf_index=0
+        else:
+            self.last_psf_index+=1
+
+        psf=self.psf[self.last_psf_index]
+
+        psf_background_list=psf.background_offset*em_phot.numpy()
         # (this is a different threshold value that was manually determined)
         psf_threshold=0.0
         def get_emitter_frames(start,end,memory):
             for i in range(start,end):
-                new_frame=self.psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
+                new_frame=psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
 
                 extent_x0=extent_x0_list[i]
                 extent_x1=extent_x1_list[i]
@@ -342,7 +353,7 @@ class MaskedSimulation:
                 # remove some manually determined background noise from partially wrongly approximated psf
                 snippet-=psf_background_list[i]
                 # remove some additional noise by thresholding
-                snippet[snippet<psf_threshold]=0
+                snippet[snippet<psf.background_threshold]=0
                 # scale to match expected brightness of emitter
                 snippet*=em_phot[i].item()/snippet.sum()
 
@@ -374,7 +385,9 @@ class MaskedSimulation:
             p.start()
 
         # run first step of background simulation on main thread while waiting for emitter/dot simulation
-        bg_frames=filters.gaussian(mask,self.gaussian_width)+self.environmental_background
+        environmental_background_value=self.environmental_background
+        environmental_background_value=torch.distributions.uniform.Uniform(0.5,5.0).sample((1,)).item()
+        bg_frames=filters.gaussian(mask,self.gaussian_width)+environmental_background_value
         bg_frames=torch.from_numpy(bg_frames).to(device)
 
         for p in processes:
@@ -393,10 +406,7 @@ class MaskedSimulation:
         
         # in decode, poisson noise is applied to background AND emitters
         # seems counter-intuitive, but that actually looks more realistic
-        if False:
-            bg_frames_plus_noise=self.noise.poisson.forward(bg_frames)
-            frames=self.noise.forward(bg_frames_plus_noise+emitter_frames,sample_photons=False)
-        else:
-            frames=self.noise.forward(bg_frames+emitter_frames)
+        frames=self.noise.forward(bg_frames+emitter_frames)
 
+        # return background _before_ 'recorded' by camera sensor
         return single_frame_emitter_set, frames, bg_frames

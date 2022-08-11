@@ -331,7 +331,7 @@ class CubicSplinePSF(PSF):
 
     def __init__(self, xextent, yextent, img_shape, ref0, coeff, vx_size,
                  *, roi_size: (None, tuple) = None, ref_re: (None, torch.Tensor, tuple) = None,
-                 roi_auto_center: bool = False, device: str = 'cuda:0', max_roi_chunk: int = 500000):
+                 roi_auto_center: bool = False, device: str = 'cuda:0', params=None, max_roi_chunk: int = 500000):
         """
         Initialise Spline PSF
 
@@ -364,6 +364,10 @@ class CubicSplinePSF(PSF):
 
         self._device, self._device_ix = decode.utils.hardware._specific_device_by_str(device)
         self.max_roi_chunk = max_roi_chunk
+
+        self.z_offset=params.z_offset
+        self.background_offset=params.background_offset
+        self.background_threshold=params.background_threshold
 
         self._init_spline_impl()
         self.sanity_check()
@@ -754,7 +758,12 @@ class CubicSplinePSF(PSF):
         Returns:
             frames: (torch.Tensor)
         """
-        xyz, weight, frame_ix, ix_low, ix_high = super().forward(xyz, weight, frame_ix, ix_low, ix_high)
+
+        # adjust z to properly center psf
+        xyz_=xyz.detach().clone()
+        xyz_[:,2]+=self.z_offset
+
+        xyz, weight, frame_ix, ix_low, ix_high = super().forward(xyz_, weight, frame_ix, ix_low, ix_high)
 
         if xyz.size(0) == 0:
             return torch.zeros((ix_high - ix_low + 1, *self.img_shape))

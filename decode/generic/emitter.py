@@ -95,6 +95,9 @@ class EmitterSet:
                          self.bg_cr)
 
         self.xy_unit = xy_unit
+        assert type(px_size) in (list,tuple,torch.Tensor), f"{px_size=} {type(px_size)=}"
+        if type(px_size) in (tuple,list):
+            assert len(px_size)==2
         self.px_size = px_size
         if self.px_size is not None:
             if not isinstance(self.px_size, torch.Tensor):

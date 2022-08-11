@@ -371,9 +371,13 @@ class MaskedEmitterSampler:
 
         total_num_emitters:int=num_emitters.sum().item()
 
-        # sample emitter intensity from this beta distribution
+        
+        # sample emitter intensity (will be scaled appropriately few lines further down)
+        # from this beta distribution
         beta_param0,beta_param1=7.5,3.5 # manually explored with https://keisan.casio.com/exec/system/1180573226
-        intensity_sampler=torch.distributions.beta.Beta(beta_param0,beta_param1)
+        #intensity_sampler=torch.distributions.beta.Beta(beta_param0,beta_param1)
+        # or from this uniform distribution
+        intensity_sampler=torch.distributions.uniform.Uniform(0.0,1.0)
 
         # (median) photon count per emitter
         #intensity:torch.Tensor = torch.clamp(self.intensity_dist.sample((total_num_emitters,)), min=self.intensity_th)
@@ -393,6 +397,9 @@ class MaskedEmitterSampler:
 
         already_positioned_emitters:int=0
 
+        # sample individual cell brightness (from a wide range for wider variety)
+        cell_brightnesses=torch.distributions.uniform.Uniform(0.1,7).sample((len(cell_regions),))
+
         # for each cell/region in the mask:
         # this takes ~4/24 seconds of the simulation
         for region_id,region in enumerate(cell_regions):
@@ -405,27 +412,32 @@ class MaskedEmitterSampler:
             if num_emitters_in_this_cell>0:
                 mask_snippet=torch_mask[minr:maxr,minc:maxc] # _may_ include overlapping very close cells -> masking used further down
                 mask_volume_snippet=mask[minr:maxr,minc:maxc]
+                # apply cell background brightness to cell (individually sampled)
+                mask_volume_snippet*=cell_brightnesses[region_id].item()
 
-                # calculate brightness of cell background (as if no dots were present)
-                cell_volume_total_brightness=mask_volume_snippet.sum().item()
+                # remove emitter brightness from cell background (more realistic model)
+                adjust_cell_background_brightness=False
+                if adjust_cell_background_brightness:
+                    # calculate brightness of cell background (as if no dots were present)
+                    cell_volume_total_brightness=mask_volume_snippet.sum().item()
 
-                # sample emitter brightness
-                cell_emitter_brightness=intensity[already_positioned_emitters:already_positioned_emitters+num_emitters_in_this_cell]
+                    # sample emitter brightness
+                    cell_emitter_brightness=intensity[already_positioned_emitters:already_positioned_emitters+num_emitters_in_this_cell]
 
-                total_cell_emitter_brightness=cell_emitter_brightness.sum().item()
+                    total_cell_emitter_brightness=cell_emitter_brightness.sum().item()
 
-                # rescale cell background brightness to remove emitters that bind to target sites
-                cell_background_scale=total_cell_emitter_brightness/cell_volume_total_brightness
-                if cell_background_scale>0.95:
-                    cell_emitter_brightness=cell_emitter_brightness*0.95/cell_background_scale
-                    cell_background_scale=0.95
+                    # rescale cell background brightness to remove emitters that bind to target sites
+                    cell_background_scale=total_cell_emitter_brightness/cell_volume_total_brightness
+                    if cell_background_scale>0.95:
+                        cell_emitter_brightness=cell_emitter_brightness*0.95/cell_background_scale
+                        cell_background_scale=0.95
 
-                mask_volume_snippet[mask_volume_snippet>0]*=1-cell_background_scale
+                    mask_volume_snippet[mask_volume_snippet>0]*=1-cell_background_scale
 
-                # save those emitter brightness values to the emitter data
-                # and split emitter brightness evenly across all emitters inside the cell 
-                # (all bind to the same region on the dna, assumed to have identical reaction dynamics so that an emitter binding to any of these sites is equally likely)
-                intensity[already_positioned_emitters:already_positioned_emitters+num_emitters_in_this_cell]=cell_emitter_brightness
+                    # save those emitter brightness values to the emitter data
+                    # and split emitter brightness evenly across all emitters inside the cell 
+                    # (all bind to the same region on the dna, assumed to have identical reaction dynamics so that an emitter binding to any of these sites is equally likely)
+                    intensity[already_positioned_emitters:already_positioned_emitters+num_emitters_in_this_cell]=cell_emitter_brightness
 
                 # get coordinates of all pixels that are inside a cell
                 cell_mask_nonzero_vector=mask_snippet.nonzero(as_tuple=False)
@@ -436,7 +448,11 @@ class MaskedEmitterSampler:
                 emitter_coordinates=total_emitter_coordinates[already_positioned_emitters:already_positioned_emitters+num_emitters_in_this_cell]
 
                 # sample x/y coordinates from list of pixels inside cells, using the cell depth penetration value (term up for debate) as weight
-                emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=False)]
+                try:
+                    emitter_coordinates[:,:2]=cell_mask_nonzero_vector[torch.multinomial(cell_mask_weights,num_samples=num_emitters_in_this_cell,replacement=True)]
+                except RuntimeError:
+                    print(f"{cell_mask_weights=} {cell_mask_nonzero_tuple=}")
+                    raise RuntimeError()
 
                 # offset coordinates for global (frame) placement (before this, the coordinates are in cell-local space)
                 emitter_coordinates[:,0]+=minr

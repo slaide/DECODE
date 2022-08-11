@@ -19,13 +19,7 @@ class Entry:
         self.param_file=Path(param_file)
         assert self.param_file.exists() and self.param_file.is_file(), f"param file not found {param_file}"
 
-        self.raw_params=decode.utils.read_params(self.param_file)
-
-        self.sim_train, _sim_test = setup_masked_simulation(self.raw_params)
-
-        self.params = self.raw_params if 1 else decode.utils.param_io.autoset_scaling(self.raw_params)
-
-        self.camera = decode.simulation.camera.Photon2Camera.parse(self.params)
+        self.params=decode.utils.read_params(self.param_file)
 
         self.device=torch.device(device)
 
@@ -89,10 +83,6 @@ class Entry:
         # if size of image does not fit into the number of snippets contained in a single batch, apply decode to all batches, then combine results
         if total_num_snippets<batch_size:
             model_input_snippets=self.frame_proc.forward(torch.from_numpy(snippets).to(self.device).float())
-
-            plt.imshow(model_input_snippets[0])
-            plt.colorbar()
-            plt.show()
 
             with torch.no_grad():
                 result=self.model.forward(model_input_snippets)
