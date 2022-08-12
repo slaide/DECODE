@@ -181,17 +181,20 @@ class MaskedSimulation:
         #mask*=self.mean_brightness_per_volume
 
         # forward emitter position through image simulation pipeline
-        single_frame_emitter_set, frames, frames_bg = self.forward(mask, device=self.device)
+        single_frame_emitter_set, frames, bg_frames = self.forward(mask, device=self.device)
 
-        return single_frame_emitter_set,mask,frames,frames_bg
+        return single_frame_emitter_set,mask,frames,bg_frames
 
     def sample_parallel(self):
+        # queue to send/receive sampled data
         queue=mp.Queue()
+        # lock as synchronization primitive to ensure exactly one set of data is sampled per sample request
         lock=mp.Lock()
         lock.acquire()
 
         def sample_in_parallel():
             while True:
+                # sample data, then wait until the data was received to continue loop
                 queue.put(self.sample())
                 lock.acquire()
                 lock.release()
@@ -205,14 +208,18 @@ class MaskedSimulation:
 
                 emitter_set, frames, frames_bg=queue.get()
 
+                # clone from memory of other process into this
                 emitter_set, frames, frames_bg = emitter_set.clone(), frames.detach().clone(), frames_bg.detach().clone()
 
                 yield emitter_set, frames, frames_bg
 
                 lock.acquire()
-        except:
+
+        except Exception as e:
             proc.terminate()
             proc.join()
+
+            raise e
 
     def sample(self):
         """
@@ -289,22 +296,21 @@ class MaskedSimulation:
                 if accept_empty_frames or h>0:
                     i,j=indices[f]
                     next_snippet=frames[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
+                    next_snippet_bg=frames_bg[:,i:i+self.frame_size[0],j:j+self.frame_size[1]]
 
                     if accept_partial_frames or (next_snippet.shape[1]==self.frame_size[0] and next_snippet.shape[2]==self.frame_size[1]):
-                        snippets[:,snippets_returned,:next_snippet.shape[1],:next_snippet.shape[2]]=next_snippet
+                        snippets[0,snippets_returned,:next_snippet.shape[1],:next_snippet.shape[2]]=next_snippet
+                        snippets[1,snippets_returned,:next_snippet.shape[1],:next_snippet.shape[2]]=next_snippet_bg
+
                         snippets_returned+=1
 
                         if snippets_returned>=self.num_frames:
                             break
                     elif not accept_partial_frames:
-                        raise ValueError("unimplemented") # need to adjust frame_ix
+                        raise ValueError("frame index adjustment for discarded partial frames in simulation unimplemented")
 
         frames=snippets[0,:,:,:]
         frames_bg=snippets[1,:,:,:]
-
-        #print(f"time passed {time_passed:.2f}")
-
-        #assert len(emitter_set)>=self.num_frames,"there is not at least one emitter per frame. this is a bug"
 
         return emitter_set, frames, frames_bg
 
@@ -394,7 +400,7 @@ class MaskedSimulation:
         environmental_background_value=self.environmental_background
         environmental_background_value=torch.distributions.uniform.Uniform(0.5,5.0).sample((1,)).item()
         bg_frames=filters.gaussian(mask,self.gaussian_width)+environmental_background_value
-        bg_frames=torch.from_numpy(bg_frames).to(device)
+        bg_frames=torch.from_numpy(bg_frames).unsqueeze(0).to(device)
         
         # in decode, poisson noise is applied to background AND emitters
         # seems counter-intuitive, but that actually looks more realistic
