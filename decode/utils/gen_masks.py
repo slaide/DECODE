@@ -89,14 +89,21 @@ class rotateImageBy90Degrees(object):
 def generate_cell_masks(
         directory_list:List[str],
         fluo_roi:Tuple[Tuple[float,float],Tuple[float,float]],
-        device:str="cuda:0",
-        threshold:float=0.9,
         fluor_dir_name:str="fluor515",
-        fluor_cropped_out_dir_name:str="fluor_cropped",
-        transmat_file_name:str="transMatV_3D.mat",
         dir_phase:str="phase",
-        dir_warped_dist_masks:Optional[str]="warped_dist_masks",
-        model_path:str="mixed10epochs_betterscale_contrastAdjusted1.pth"
+
+        fluor_cropped_out_dir_name:Optional[str]="fluor_cropped", # also crop and save the fluor image regions that were cropped for the masks
+        dir_warped_dist_masks:Tuple[bool,str]=(
+            False, # output folder is global target, i.e. all dist masks of all folder will be written into the same target folder (if False, output folder will be relative to folder in 'directory_list')
+            "warped_dist_masks"
+        ),
+        warped_dist_masks_prefix:str="warped_dist_mask_",
+
+        transmat_file_name:str="transMatV_3D.mat",
+
+        threshold:float=0.9,
+        device:str="cuda:0",
+        model_path:str="mixed10epochs_betterscale_contrastAdjusted1.pth",
     ):
 
     y_min=fluo_roi[1][0]
@@ -119,6 +126,50 @@ def generate_cell_masks(
         rotateImageBy90Degrees(),
         tensorizeOneImage(1)])
 
+    """ post-process segmentation mask generation network """
+    def process_cell_mask(res):
+        mask_pred = net_result[ds_index]>=threshold
+        mask_pred = mask_pred.to("cpu").numpy().squeeze(0)
+
+        mask_pred_labeled = skimage.measure.label(mask_pred)
+        
+        """ setup some parameters for mask clean-up """
+        # area of one pixel in image
+        pixel_area=(65e-3)**2
+        #min area: 1µm (*0.7 for safety)
+        min_area=0.7/pixel_area
+        #max area: 3.5µm (+1µm for safety)
+        max_area=4.5/pixel_area #actually currently not enforced
+        #hole area threshold (upper limit of hole size that will be filled): 0.4µm
+        hole_area_threshold=0.4/pixel_area
+            
+        mask_cleaned = skimage.morphology.remove_small_objects(mask_pred_labeled, min_size=min_area)
+        mask_cleaned = skimage.morphology.remove_small_holes(mask_cleaned > 0, area_threshold=hole_area_threshold)
+
+        """ for each region (area of pixels with value 'True' (1, or 1.0)), calculate the shortest distance to the area's border (outer cell wall) with another region. then normalize the distances, then transform the linear [0;1] space to the cell thickness at each pixel, approximated by modeling the cell as perfectly round"""
+        dists = edt.edt(mask_cleaned, order='C', parallel=0)
+        dists_zero_mask=dists==0
+
+        regions=regionprops(skimage.measure.label(mask_cleaned),intensity_image=dists, cache=True)
+        for cell in regions:
+            minr, minc, maxr, maxc = cell.bbox
+
+            radius=cell.intensity_image.max()
+            cell_dists_zero_mask=dists_zero_mask[minr:maxr,minc:maxc]
+            dists[minr:maxr,minc:maxc][cell_dists_zero_mask]=(numpy.sqrt(radius**2-(radius-cell.intensity_image)**2)*radius)[cell_dists_zero_mask]
+
+        assert dists.dtype==numpy.float32
+        
+        # calc average of local neighborhood as better approximation of cell volume
+        dists_smoothed=scipy.ndimage.convolve(dists,numpy.ones((3,3))/9)
+        # remove cell volume that 'leaked' out of cell by calculating of local mean for pixel outsid
+        dists_smoothed[dists_zero_mask]=0
+
+        cell_mask_img=numpy.rot90(dists_smoothed,k=-1)
+        assert cell_mask_img.sum()>0
+
+        return cell_mask_img
+
     """ load phase contrast/fluorescence alignment transformation matrix """
     # transpose because opencv coordinate system works different from matlab
     transformation_matrix=loadmat(transmat_file_name)["transformationMatrix"].T
@@ -126,12 +177,23 @@ def generate_cell_masks(
     
     directory_list=[Path(directory) for directory in sorted(directory_list)]
     experiment_directory_list=[directory for directory in directory_list if directory.is_dir() and not directory.name.startswith(".")]
-    for directory in tqdm(experiment_directory_list,desc="pos",unit="dir"):
-        cropped_fluor_dir=directory/fluor_cropped_out_dir_name # is output
-        if not cropped_fluor_dir.exists():
-            cropped_fluor_dir.mkdir()
 
-        warped_masks_dir=directory/dir_warped_dist_masks # is output
+    dir_warped_dist_mask_is_global=dir_warped_dist_masks[0]
+    if dir_warped_dist_mask_is_global:
+        num_warped_dist_mask=0
+
+    segmentation_task_list=[]
+
+    for directory in tqdm(experiment_directory_list,desc="dir",unit="dir"):
+        if not fluor_cropped_out_dir_name is None:
+            cropped_fluor_dir=directory/fluor_cropped_out_dir_name # is output
+            if not cropped_fluor_dir.exists():
+                cropped_fluor_dir.mkdir()
+
+        if dir_warped_dist_mask_is_global:
+            warped_masks_dir=Path(dir_warped_dist_masks[1]) # is output
+        else:
+            warped_masks_dir=directory/dir_warped_dist_masks[1] # is output
         if not warped_masks_dir.exists():
             warped_masks_dir.mkdir()
             
@@ -155,90 +217,51 @@ def generate_cell_masks(
 
         """ apply segmentation network to phase contrast images """
 
-        remove_small_objects=None
+        dataset = SegmentDirectory(phase_dir, 
+            transform=transform, flip=True,
+            out_dir=warped_masks_dir if not dir_warped_dist_mask_is_global else None) # this is used to skip files that have already been processed (not possible with global output folder)
 
-        dataset = SegmentDirectory(phase_dir, transform=transform, flip=False, out_dir=warped_masks_dir)
+        batch_size=1 # thats all that fits into 11GB vram
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=1)
 
-        if len(dataset)>0:
-            batch_size=1
-            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-
+        for i_batch, data in tqdm(dataloader,desc="dist+crop",leave=False,unit="img"):
             with torch.no_grad():
-                for i_batch, data in tqdm(dataloader,desc="dist+crop",leave=False,unit="img"):
-                    phase = data.to(device)
+                phase = data.to(device)
+                
+                net_result=net(phase)
+
+            for ds_index in range(batch_size):
+                cell_mask_img=process_cell_mask(net_result[ds_index])
+
+                """ align segmentation mask with fluorescence image, and crop both to the relevant ROI """
+                if dir_warped_dist_mask_is_global:
+                    cropped_warped_mask_path=warped_masks_dir/f"{warped_dist_masks_prefix}{num_warped_dist_mask:08}.tiff"
+                    num_warped_dist_mask+=1
+                else:
+                    cropped_warped_mask_path=warped_masks_dir/f"{warped_dist_masks_prefix}{i_batch[ds_index]:08}.tiff"
+                fluor_image_path=fluor_images[i_batch[ds_index]*fluorescence_per_phase]
+                if not fluor_cropped_out_dir_name is None:
+                    cropped_fluor_path=cropped_fluor_dir/fluor_image_path.name
+
+                cropped_fluor_gen_required=(not fluor_cropped_out_dir_name is None) and (not cropped_fluor_path.exists())
+                if cropped_fluor_gen_required or not cropped_warped_mask_path.exists():
+                    # transform phase contrast image to be aligned with the fluorescence image
+                    fluor_image=skimage.io.imread(fluor_image_path,as_gray=True)
+
+                    if not cropped_warped_mask_path.exists():
+                        warped_mask=numpy.zeros_like(fluor_image,dtype=numpy.float32)
+                        warped_mask=cv.warpPerspective(cell_mask_img,transformation_matrix_inv,(fluor_image.shape[1],fluor_image.shape[0]),dst=warped_mask)
+                        cropped_warped_mask=warped_mask[y_min:y_max,x_min:x_max]
+
+                        #assert cropped_warped_mask.any(), "warping mask image resulted in black image (all pixel values 0)"
+                        
+                        # zlib compression is losless, and can reduce the file size significantly (e.g. 2.4MB -> 330kB)
+                        skimage.io.imsave(cropped_warped_mask_path, cropped_warped_mask, plugin="tifffile",compression="zlib")
                     
-                    net_result=net(phase)
-
-                    for ds_index in range(batch_size):
-                        mask_pred = net_result[ds_index]>=threshold
-                        mask_pred = mask_pred.to("cpu").numpy().squeeze(0)
-
-                        mask_pred_labeled = skimage.measure.label(mask_pred)
-                        
-                        if not remove_small_objects is None:
-                            min_area=remove_small_objects["min_area"]
-                            max_area=remove_small_objects["max_area"]
-                            hole_area_threshold=remove_small_objects["hole_area_threshold"]
-                        else:
-                            pixel_area=(65e-3)**2
-                            #min area: 1µm (*0.7 for safety)
-                            min_area=0.7/pixel_area
-                            #max area: 3.5µm (+1µm for safety)
-                            max_area=4.5/pixel_area #actually currently not enforced
-                            #hole area threshold (upper limit of hole size that will be filled): 0.4µm
-                            hole_area_threshold=0.4/pixel_area
-                            
-                        mask_cleaned = skimage.morphology.remove_small_objects(mask_pred_labeled, min_size=min_area)
-                        mask_cleaned = skimage.morphology.remove_small_holes(mask_cleaned > 0, area_threshold=hole_area_threshold)
-
-                        """ for each region (area of pixels with value 'True' (1, or 1.0)), calculate the shortest distance to the area's border (outer cell wall) with another region. then normalize the distances, then transform the linear [0;1] space to the cell thickness at each pixel, approximated by modeling the cell as perfectly round"""
-                        dists = edt.edt(mask_cleaned, order='C', parallel=0)
-                        dists_zero_mask=dists==0
-
-                        regions=regionprops(skimage.measure.label(mask_cleaned),intensity_image=dists, cache=True)
-                        for cell in regions:
-                            minr, minc, maxr, maxc = cell.bbox
-
-                            radius=cell.intensity_image.max()
-                            cell_dists_zero_mask=dists_zero_mask[minr:maxr,minc:maxc]
-                            dists[minr:maxr,minc:maxc][cell_dists_zero_mask]=(numpy.sqrt(radius**2-(radius-cell.intensity_image)**2)*radius)[cell_dists_zero_mask]
-
-                            #assert numpy.abs(cell.intensity_image.max()-radius)<1e-6
-
-                        assert dists.dtype==numpy.float32
-                        
-                        # calc average of local neighborhood as better approximation of cell volume
-                        dists_smoothed=scipy.ndimage.convolve(dists,numpy.ones((3,3))/9)
-                        # remove cell volume that 'leaked' out of cell by calculating of local mean for pixel outsid
-                        dists_smoothed[dists_zero_mask]=0
-
-                        cell_mask_img=numpy.rot90(dists_smoothed,k=-1)
-                        assert cell_mask_img.sum()>0
-
-                        cell_mask_path=warped_masks_dir/f"dist_mask_{i_batch[ds_index]:08}.tiff"
-
-                        """ align segmentation mask with fluorescence image, and crop both to the relevant ROI """
-                        cropped_warped_mask_path=warped_masks_dir/cell_mask_path.name
-                        fluor_image_path=fluor_images[i_batch[ds_index]*fluorescence_per_phase]
-                        cropped_fluor_path=cropped_fluor_dir/fluor_image_path.name
-
-                        if not cropped_warped_mask_path.exists() or not cropped_fluor_path.exists():
-                            # transform phase contrast image to be aligned with the fluorescence image
-                            fluor_image=skimage.io.imread(fluor_image_path,as_gray=True)
-
-                            if not cropped_warped_mask_path.exists():
-                                warped_mask=numpy.zeros_like(fluor_image,dtype=numpy.float32)
-                                warped_mask=cv.warpPerspective(cell_mask_img,transformation_matrix_inv,(fluor_image.shape[1],fluor_image.shape[0]),dst=warped_mask)
-                                cropped_warped_mask=warped_mask[y_min:y_max,x_min:x_max]
-
-                                #assert cropped_warped_mask.any(), "warping mask image resulted in black image (all pixel values 0)"
-                                
-                                skimage.io.imwrite(cropped_warped_mask_path, cropped_warped_mask)
-                            
-                            if not cropped_fluor_path.exists():
-                                # write cropped fluorescence that corresponds to the image region the phase contrast image was mapped onto
-                                cropped_fluor=fluor_image[y_min:y_max,x_min:x_max]
-                                skimage.io.imwrite(cropped_fluor_path, cropped_fluor)
+                    if cropped_fluor_gen_required:
+                        # write cropped fluorescence that corresponds to the image region the phase contrast image was mapped onto
+                        cropped_fluor=fluor_image[y_min:y_max,x_min:x_max]
+                        skimage.io.imsave(cropped_fluor_path, cropped_fluor, plugin="tifffile",compression="zlib")
 
     # clear vram
     del net

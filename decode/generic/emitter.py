@@ -179,7 +179,7 @@ class EmitterSet:
                 tar_unit=tar_unit,
                 power=self._power_auto_conversion_attrs[attr_base])
 
-        raise AttributeError
+        raise AttributeError(f"unknown attribute '{item}'")
 
     @property
     def meta(self) -> dict:

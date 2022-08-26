@@ -18,7 +18,8 @@ class MaskedEmitterSampler:
     """
     def __init__(self, *, 
             num_frames: int, xy_unit: str, px_size: Tuple[float, float], 
-            z_range:tuple, min_brightness:float, max_brightness:float, em_avg:float):
+            z_range:tuple, min_brightness:float, max_brightness:float, em_avg:float,
+            cell_background:Union[Tuple[float,float],float]):
         """
 
         Args:
@@ -42,6 +43,16 @@ class MaskedEmitterSampler:
 
         self.min_brightness=min_brightness
         self.max_brightness=max_brightness
+
+        self.cell_background=cell_background
+
+    # sample individual cell brightness (from a wide range for wider variety)
+    def sample_cell_brightness(self,num):
+        if isinstance(self.cell_background,float):
+            return torch.ones((num,))*self.cell_background
+        else:
+            assert len(self.cell_background)==2
+            return torch.distributions.uniform.Uniform(self.cell_background[0],self.cell_background[1]).sample((num,))
 
     def __call__(self) -> EmitterSet:
         raise NotImplementedError
@@ -110,11 +121,9 @@ class MaskedEmitterSampler:
 
         already_positioned_emitters:int=0
 
-        # sample individual cell brightness (from a wide range for wider variety)
-        cell_brightnesses=torch.distributions.uniform.Uniform(0.1,7).sample((len(cell_regions),))
+        cell_brightnesses=self.sample_cell_brightness(len(cell_regions))
 
         # for each cell/region in the mask:
-        # this takes ~4/24 seconds of the simulation
         for region_id,region in enumerate(cell_regions):
             minr, minc, maxr, maxc = region.bbox
             #bx = (minc, maxc, maxc, minc, minc)
@@ -247,4 +256,5 @@ class MaskedEmitterSampler:
                    z_range=param.Simulation.emitter_extent[2],
                    min_brightness=param.Scaling.phot_min,
                    max_brightness=param.Scaling.phot_max,
-                   em_avg=param.Simulation.emitter_av)
+                   em_avg=param.Simulation.emitter_av,
+                   cell_background=param.Simulation.background.mean_brightness_per_volume)

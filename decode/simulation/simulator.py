@@ -117,6 +117,23 @@ import time
 import threading as td
 import multiprocessing as mp
 import multiprocessing.shared_memory
+import torchvision.transforms as transforms
+import torch
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
+# rotation code from https://stackoverflow.com/questions/64197754/how-do-i-rotate-a-pytorch-image-tensor-around-its-center-in-a-way-that-supports
+def get_rot_mat(theta):
+    theta = torch.tensor(theta)
+    return torch.tensor([[torch.cos(theta), -torch.sin(theta), 0],
+                         [torch.sin(theta), torch.cos(theta), 0]])
+
+
+def rot_img(x, theta):
+    rot_mat = get_rot_mat(theta)[None, ...].float().repeat(x.shape[0],1,1)
+    grid = F.affine_grid(rot_mat, x.size(),align_corners=False).float()
+    x = F.grid_sample(x, grid,align_corners=False)
+    return x
 
 class MaskedSimulation:
     """
@@ -141,7 +158,8 @@ class MaskedSimulation:
         frame_size:Tuple[int,int], 
         noise, # camera
         device:Union[str,torch.device]="cpu", 
-        background_args=None
+        background_args=None,
+        augment_rotation:bool=False
     ):
         """
         Init Simulation.
@@ -173,6 +191,15 @@ class MaskedSimulation:
         self.environmental_background=background_args.environmental_background
         self.mean_brightness_per_volume=background_args.mean_brightness_per_volume
         self.gaussian_width=background_args.gaussian_width
+
+        self.augment_rotation=augment_rotation
+
+    def sample_background(self):
+        if isinstance(self.environmental_background,float):
+            return self.environmental_background
+        else:
+            assert len(self.environmental_background)==2
+            return torch.distributions.uniform.Uniform(self.environmental_background[0],self.environmental_background[1]).sample((1,)).item()
 
     def sample_full_frame(self,fraction_emitters_above_zero:float=0.5,override_probs=None):
 
@@ -375,6 +402,12 @@ class MaskedSimulation:
         # (this is a different threshold value that was manually determined)
         psf_threshold=0.0
 
+        # rotate each snippet by a random small angle
+        if self.augment_rotation:
+            random_angles=numpy.random.uniform(-4,4,(em_xyz_px.shape[0],))
+            random_angles_sin=numpy.sin(random_angles)
+            random_angles_cos=numpy.cos(random_angles)
+
         for i in range(0,em_xyz_px.shape[0]):
             new_frame=psf.forward(em_xyz_px[i:i+1], em_phot[i:i+1], em_frame_ix[i:i+1], ix_low=None, ix_high=None).numpy()
 
@@ -392,14 +425,27 @@ class MaskedSimulation:
             # scale to match expected brightness of emitter
             snippet*=em_phot[i].item()/snippet.sum()
 
+            if self.augment_rotation:
+                # rotate psf slightly (around center of snippet)
+                theta=numpy.pi/180*random_angles[i]
+                snippet=rot_img(torch.from_numpy(snippet).unsqueeze(0).unsqueeze(0), theta).squeeze(0).squeeze(0).numpy()
+
+                # adjust emitter coordinates to match rotated psf
+                dx=(extent_x1-extent_x0)/2+extent_x0
+                dy=(extent_y1-extent_y0)/2+extent_y0
+
+                x=em_xyz_px[i,0]-dx
+                y=em_xyz_px[i,1]-dy
+                # manual multiplication of emitter coords with 'rotation matrix'
+                em_xyz_px[i,0]=x*random_angles_cos[i]-y*random_angles_sin[i]+dx
+                em_xyz_px[i,1]=x*random_angles_cos[i]+y*random_angles_sin[i]+dy
+
             if i==0:
                 emitter_frames:torch.Tensor = new_frame
             else:
                 emitter_frames[0,extent_x0:extent_x1,extent_y0:extent_y1] += snippet
 
-        environmental_background_value=self.environmental_background
-        environmental_background_value=torch.distributions.uniform.Uniform(0.5,5.0).sample((1,)).item()
-        bg_frames=filters.gaussian(mask,self.gaussian_width)+environmental_background_value
+        bg_frames=filters.gaussian(mask,self.gaussian_width)+self.sample_background()
         bg_frames=torch.from_numpy(bg_frames).unsqueeze(0).to(device)
         
         # in decode, poisson noise is applied to background AND emitters

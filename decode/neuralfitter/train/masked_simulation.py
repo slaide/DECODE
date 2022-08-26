@@ -53,30 +53,32 @@ def setup_masked_simulation(param):
         device=param.Hardware.device_simulation,
         roi_size=param.Simulation.roi_size,
         roi_auto_center=param.Simulation.roi_auto_center
-    ) for psf in param.InOut.psfs]
+    ) for psf in param.Simulation.psfs]
 
     """ setup simulation for training"""
 
     simulation_train = decode.simulation.simulator.MaskedSimulation(
-        segmentation_masks_glob=param.InOut.segmentation_masks, 
+        segmentation_masks_glob=param.Simulation.segmentation_masks, 
         psf=psfs, 
         em_sampler=prior_train, 
         noise=noise, 
         num_frames=frame_range_train[1],
         frame_size=param.Simulation.img_size,
         device=param.Hardware.device_simulation,
-        background_args=param.Simulation.background)
+        background_args=param.Simulation.background,
+        augment_rotation=param.Simulation.augment_rotation)
 
     """ setup simulation for testing """
 
     simulation_test = decode.simulation.simulator.MaskedSimulation(
-        segmentation_masks_glob=param.InOut.segmentation_masks, 
+        segmentation_masks_glob=param.Simulation.segmentation_masks, 
         psf=psfs, 
         em_sampler=prior_test, 
         noise=noise,
         num_frames=frame_range_test[1],
         frame_size=param.Simulation.img_size,
         device=param.Hardware.device_simulation,
-        background_args=param.Simulation.background)
+        background_args=param.Simulation.background,
+        augment_rotation=param.Simulation.augment_rotation)
 
     return simulation_train, simulation_test
