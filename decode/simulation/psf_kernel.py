@@ -1,7 +1,7 @@
 import math
 import warnings
 from abc import ABC, abstractmethod
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 
 import numpy as np
 import decode.simulation.spline as spline # cubic spline implementation
@@ -17,7 +17,7 @@ class PSF(ABC):
     forward must be overwritten and shall be called via super().forward(...) before the subclass implementation follows.
     """
 
-    def __init__(self, xextent=(None, None), yextent=(None, None), zextent=None, img_shape=(None, None)):
+    def __init__(self, xextent=(None, None), yextent=(None, None), zextent=None, img_shape=(None, None), size:Optional[int]=None):
         """
         Constructor to comprise a couple of default attributes
 
@@ -35,6 +35,8 @@ class PSF(ABC):
         self.zextent = zextent
 
         self.img_shape = img_shape
+
+        self.size=size
 
     def __str__(self):
         return 'PSF: \n xextent: {}\n yextent: {}\n zextent: {}\n img_shape: {}'.format(self.xextent,
@@ -331,7 +333,8 @@ class CubicSplinePSF(PSF):
 
     def __init__(self, xextent, yextent, img_shape, ref0, coeff, vx_size,
                  *, roi_size: (None, tuple) = None, ref_re: (None, torch.Tensor, tuple) = None,
-                 roi_auto_center: bool = False, device: str = 'cuda:0', params=None, max_roi_chunk: int = 500000):
+                 roi_auto_center: bool = False, device: str = 'cuda:0', params=None, max_roi_chunk: int = 500000,
+                 size:Optional[int]=None):
         """
         Initialise Spline PSF
 
@@ -348,7 +351,7 @@ class CubicSplinePSF(PSF):
             max_roi_chunk (int): max number of rois to be processed at a time via the cuda kernel. If you run into
                 memory allocation errors, decrease this number or free some space on your CUDA device.
         """
-        super().__init__(xextent=xextent, yextent=yextent, zextent=None, img_shape=img_shape)
+        super().__init__(xextent=xextent, yextent=yextent, zextent=None, img_shape=img_shape, size=size)
 
         self._coeff = coeff
         self._roi_native = self._coeff.size()[:2]  # native roi based on the coeff's size

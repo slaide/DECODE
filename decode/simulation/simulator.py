@@ -384,7 +384,9 @@ class MaskedSimulation:
 
         em_xyz_px_int=em_xyz_px.numpy().astype(dtype=int)
 
-        psf_width=45
+        # use max size of any of the PSFs currently in use
+        psf_width=numpy.max([psf.size for psf in self.psf])
+
         extent_x0_list=numpy.clip(em_xyz_px_int[:,0] - (psf_width//2 + 2), a_min=0, a_max=None)
         extent_x1_list=numpy.clip(em_xyz_px_int[:,0] + (psf_width//2 + 2), a_min=None, a_max=mask.shape[0])
         extent_y0_list=numpy.clip(em_xyz_px_int[:,1] - (psf_width//2 + 2), a_min=0, a_max=None)
@@ -405,7 +407,9 @@ class MaskedSimulation:
 
         # rotate each snippet by a random small angle
         if self.augment_rotation:
-            random_angles=numpy.random.uniform(-4,4,(em_xyz_px.shape[0],))
+            # arbitrarily chosen range "range of small rotation values"
+            angle_min,angle_max=-4,4
+            random_angles=numpy.random.uniform(angle_min,angle_max,(em_xyz_px.shape[0],))
             random_angles_sin=numpy.sin(random_angles)
             random_angles_cos=numpy.cos(random_angles)
 

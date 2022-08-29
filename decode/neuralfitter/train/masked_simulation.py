@@ -52,7 +52,8 @@ def setup_masked_simulation(param):
         img_shape=(param.Simulation.psf_extent_img[0][1],param.Simulation.psf_extent_img[1][1]), # img_shape and psf_extent are always equal
         device=param.Hardware.device_simulation,
         roi_size=param.Simulation.roi_size,
-        roi_auto_center=param.Simulation.roi_auto_center
+        roi_auto_center=param.Simulation.roi_auto_center,
+        size=psf.size
     ) for psf in param.Simulation.psfs]
 
     """ setup simulation for training"""
