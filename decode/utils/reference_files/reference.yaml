@@ -86,15 +86,14 @@ Meta:
 PostProcessing: SpatialIntegration  # (blank) for no post-processing or LookUp
 PostProcessingParam:
   raw_th: 0.2 # this value can actually be this low. check results before you change this
-Scaling:  # if some values are missing they will be auto-set as described in the respective comments below
+Scaling: # these values need to be set manually. they are used to scale the input/output data for the ai so that both are in range [0;1]
   # applied to the input frame ( actual_input = (input - offset) / scale )
-  input_scale:  # intensity_mu / 50
-  input_offset:  # bg_uniform (mean)
-
+  input_scale: # should be max expected pixel value
+  input_offset: # should be min expected pixel value (can be 0)
   # rescale sampled emitter data
-  bg_max:  # 1.2 * upper limit of bg val
-  phot_max:  # intensity_mu + 8 * sigma
-  z_max:  # 1.2 * upper simulation extent
+  bg_max: # max expected background pixel value
+  phot_max: # max expected emitter brightness (in photons)
+  z_max: # max expected emitter z coordinate (expecting symmetric z range. should be equal to/slightly larger than max z out Simulation.emitter_extent)
 Simulation:
   emitter_av: 8  # average number of emitters per frame (used for testing of training convergence, training will fail if this value is too low)
   # region the emitter coordinates are sampled in
