@@ -118,6 +118,7 @@ Simulation:
       z_offset: # add (nm) to z coordinate of emitters to emulate better centered PSF (image in middle of bead stack does not necessarily represent z=0, i.e. smallest/roundest dot shape -> correct with this parameter)
       background_offset:  # subtract this value from the psf approximation to remove noise
       background_threshold: # after noise subtraction, set pixel values below this value to 0 for additional clean-up
+      size: # size of the psf approximation volume in px (as specified in smap)
   # the 'background' section specifies the simulation parameters for the background (everything in the simulated images, except the dots)
   # tuple values mean that for each simulated image, a value is sampled from a uniform distribution in that range
   # single values mean that each image is simulated with the same value
