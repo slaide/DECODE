@@ -1,32 +1,48 @@
-# Minimal set of parameters to train DECODE. All of these fields need to be filled out.
-Camera:  # camera specs, exemplary shown are the values of the camera used in the challenge
-  baseline: 100.0
-  e_per_adu: 45.0
-  em_gain: 300.0
-  px_size:
-    - 100.0
-    - 100.0
-  read_sigma: 74.4
-  spur_noise: 0.002
+Camera: # camera parameters, need to be filled
+  baseline:
+  e_per_adu:
+  em_gain:
+  px_size: # pixel size in nm, as tuple (pixels not necessarily square)
+    -
+    -
+  qe: 
+  read_sigma:
+HyperParameter:
+  max_number_targets: # if this number is too small, training will fail (process crash. number too large will consume unnecessary amounts of vram that could better be spent on larger batch sizes)
 InOut:
-  calibration_file:  # path to 3d calibration
-  experiment_out:  # place your path to the output folder here
+  experiment_out: # output directory where trained ai should go (ai will go into 'experiment_out/automaticallyNamedSubfolder/model_0.pt')
+Scaling: # these values need to be set manually. they are used to scale the input/output data for the ai so that both are in range [0;1]
+  # applied to the input frame ( actual_input = (input - offset) / scale )
+  input_scale: # should be max expected pixel value
+  input_offset: # should be min expected pixel value (can be 0)
+  # rescale sampled emitter data
+  bg_max: # max expected background pixel value
+  phot_max: # max expected emitter brightness (in photons)
+  z_max: # max expected emitter z coordinate (expecting symmetric z range. should be equal to/slightly larger than max z out Simulation.emitter_extent)
 Simulation:
-  bg_uniform:  # background range to sample from. You can also specify a const. value as 'bg_uniform: 100'
-    - 90
-    - 150
-  emitter_av: 25  # average number of emitters on a frame with extent as specified below
-  emitter_extent:  # specify the extent of the emitters in x,y,z on the frame. Please be careful with '-' signs
-    - - -0.5
-      - 39.5
-    - - -0.5
-      - 39.5
-    # adjust z range of emitters (as by your calibration),
-    # warning: when you go from -750, ... 750 you will have in the first row: '- - -750',
-    # second row '- 750' because the value is a tuple of tuples
-    - - -750
-      - 750
-  intensity_mu_sig:  # emitters brightness, mean and standard deviation
-    - 10000.0
-    - 3000.0
-  lifetime_avg: 2.0  # lifetime average of the emitters
+  emitter_av: # average number of emitters per frame (used for testing of training convergence, training will fail if this value is too low)
+  # region the emitter coordinates are sampled in
+  # x/y currently just should be equal to segmentation mask size
+  # z is emitter z range (valid range is user-defined, as estimated from the psf approximation results)
+  emitter_extent: # tuple x/y/z, with x/y size in px, z range tuple in nm (z should be symmetric!)
+    - # x in px
+    - # y in px
+    - - # lower z boundary in nm
+      - # upper z boundary in nm
+  img_size: # size of snippets fed into the ai (should be square; make this as large as possible given the gpu vram)
+    - 96
+    - 96
+  segmentation_masks: # glob referencing segmentation masks
+  psfs: # list of PSFs used for training (can be arbitrarily long, though must be at least 1)
+    - file: # filepath to psfApproximation.mat (filename can be anything, but should end in .mat)
+      z_offset: # add (nm) to z coordinate of emitters to emulate better centered PSF (image in middle of bead stack does not necessarily represent z=0, i.e. smallest/roundest dot shape -> correct with this parameter)
+      background_offset:  # subtract this value from the psf approximation to remove noise
+      background_threshold: # after noise subtraction, set pixel values below this value to 0 for additional clean-up
+  # the 'background' section specifies the simulation parameters for the background (everything in the simulated images, except the dots)
+  # tuple values mean that for each simulated image, a value is sampled from a uniform distribution in that range
+  # single values mean that each image is simulated with the same value
+  # these values can be estimated from an experiment using test_decode/eval/approximation_background.py
+  background: # these values should be approximated with test_decode/eval/approximate_background.py
+    mean_brightness_per_volume: # cell background, can be single value or tuple
+    gaussian_width: # std. dev. for the 'gaussian psf' that estimates the psf of the unbound fluorophores in the cells
+    environmental_background: # can be single value or tuple

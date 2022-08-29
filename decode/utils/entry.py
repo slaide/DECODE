@@ -1,6 +1,7 @@
 from pathlib import Path
 from argparse import ArgumentParser
 from tqdm import tqdm
+from typing import Optional
 
 import torch
 import numpy
@@ -11,14 +12,14 @@ from skimage.io import imread
 import decode
 
 # use like this: 
-# $ pyenv exec python -m decode.utils.cli_entry \
+# $ pyenv exec python -m decode.utils.entry \
 # decode_models/new_cell_background/model_2.pt \
 # decode_models/new_cell_background/param_run_in.yaml \
 # experiments/EXP-22-BY8853/Run/Pos01/fluor515/img_000000000.tiff \
 # -o eval/results_for_one_image.mat
 
 class Entry:
-    def __init__(self,model_file,param_file,device):
+    def __init__(self,model_file,param_file,device,threshold:Optional[float]=None):
         self.model_file=Path(model_file)
         assert self.model_file.exists() and self.model_file.is_file(), f"DECODE model file not found {model_file}"
 
@@ -26,6 +27,9 @@ class Entry:
         assert self.param_file.exists() and self.param_file.is_file(), f"param file not found {param_file}"
 
         self.params=decode.utils.read_params(self.param_file)
+
+        if not threshold is None:
+            self.params.PostProcessingParam.raw_th=threshold
 
         self.device=torch.device(device)
 
@@ -87,28 +91,21 @@ class Entry:
         offsets1=numpy.array(offsets1)
 
         # if size of image does not fit into the number of snippets contained in a single batch, apply decode to all batches, then combine results
-        if total_num_snippets<batch_size:
-            model_input_snippets=self.frame_proc.forward(torch.from_numpy(snippets).to(self.device).float())
+        for i in range(0,snippets.shape[0],batch_size):
+            model_input_snippets=self.frame_proc.forward(torch.from_numpy(snippets[i:i+batch_size]).to(self.device).float())
 
             with torch.no_grad():
-                result=self.model.forward(model_input_snippets)
-                em_out=self.post_processor.forward(result)
-        else:
-            for i in range(0,snippets.shape[0],batch_size):
-                model_input_snippets=self.frame_proc.forward(torch.from_numpy(snippets[i:i+batch_size]).to(self.device).float())
+                partial_result=self.model.forward(model_input_snippets)
+                partial_em_out=self.post_processor.forward(partial_result)
+                partial_em_out.frame_ix[:]+=i
 
-                with torch.no_grad():
-                    partial_result=self.model.forward(model_input_snippets)
-                    partial_em_out=self.post_processor.forward(partial_result)
-                    partial_em_out.frame_ix[:]+=i
+            if i==0:
+                em_out=partial_em_out
+            else:
+                em_out=decode.generic.emitter.EmitterSet.cat([em_out,partial_em_out])
 
-                if i==0:
-                    em_out=partial_em_out
-                else:
-                    em_out=decode.generic.emitter.EmitterSet.cat([em_out,partial_em_out])
-
-            em_out.xyz_px[:,0]+=offsets0[em_out.frame_ix]
-            em_out.xyz_px[:,1]+=offsets1[em_out.frame_ix]
+        em_out.xyz_px[:,0]+=offsets0[em_out.frame_ix]
+        em_out.xyz_px[:,1]+=offsets1[em_out.frame_ix]
 
         em_out.frame_ix[:]=0
         em_out.xyz_px=em_out.xyz_px.detach().cpu().float()

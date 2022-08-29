@@ -227,6 +227,7 @@ class MaskedSimulation:
                 lock.release()
 
         proc=mp.Process(target=sample_in_parallel)
+        proc.daemon=True
         proc.start()
 
         try:

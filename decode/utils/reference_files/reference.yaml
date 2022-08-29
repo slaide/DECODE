@@ -3,28 +3,27 @@
 #   1. needed
 #   2. derived / automatically determined
 #
-CameraPreset:
-Camera:
+CameraPreset: # leave empty
+Camera: # camera parameters, need to be filled
   baseline:
-  convert2photons: true
+  convert2photons: true # irrelevant
   e_per_adu:
   em_gain:
-  mirror_dim:   # this field is only active during fitting per inference .py file
   px_size:
-  qe: 1.0
+  qe: 
   read_sigma:
-  spur_noise:
-Evaluation:
+  spur_noise: 0.0 # only used in emccd cameras
+Evaluation: # training progress (e.g. recall, rmsd_lat) is shown based on results calculated using matching from these parameters
   dist_ax: 500.0
   dist_lat: 250.0
   dist_vol:
   match_dims: 3
 Hardware:
-  device: cuda:0
-  device_simulation: cuda:0
-  num_worker_train: 4
-  torch_threads: 4
-  unix_niceness: 0
+  device: cuda:0 # change this to run training on different hardware (cuda-capable highly recommended)
+  device_simulation: cpu # simulation actually takes place mostly in cpu either way
+  num_worker_train: 4 # change to maybe improve performance?
+  torch_threads: 4 # change to maybe improve performance?
+  unix_niceness: 0 # unix-specific thing. leave as is
   torch_multiprocessing_sharing_strategy:
 HyperParameter:
   arch_param:
@@ -51,45 +50,42 @@ HyperParameter:
     up_mode: upsample
     use_last_nl:
   architecture: SigmaMUNet
-  auto_restart_param:
+  auto_restart_param: # these are only relevant to change if training fails with a corresponding error message
     num_restarts: 5
-    restart_treshold: 100
-  batch_size: 64
-  channels_in: 3
+    restart_treshold: 150
+  batch_size: 64 # should be 2^n, and as large as possible given gpu vram (technically training can be faster with a larger number here, though performance should be fine if at least 16)
+  channels_in: 1 # leftover parameter from the time this AI was used for palm/storm
   channels_out:
   chweight_stat:
     - 1.0
     - 1.0
   disabled_attributes:
-  ds_lifetime:
   epoch_0:
-  epochs: 1000
+  epochs: 1000 # number of training epochs (train on dataset of 'pseudo_ds_size' images this many times)
   fgbg_factor:
   grad_mod: true
-  emitter_label_photon_min: 100.0
+  emitter_label_photon_min: 100.0 # minimum emitter brightness (emitters below this brightness will be rendered, but not trained on). empty equals 0.0
   loss_impl: MixtureModel
   learning_rate_scheduler: StepLR
   learning_rate_scheduler_param:
     step_size: 10
     gamma: 0.9
-  max_number_targets: 250
+  max_number_targets: 250 # if this number is too small, training will fail (process crash. number too large will consume unnecessary amounts of vram that could better be spent on larger batch sizes)
   moeller_gradient_rescale: false
   opt_param:
-    lr: 0.0002
+    lr: 0.0002 # dont change this (unless you know what you are doing)
     weight_decay: 0.1
   optimizer: AdamW
   photon_threshold:
-  pseudo_ds_size: 10000
+  pseudo_ds_size: 8192 # number of frame snippets the AI is trained on (this many snippets of size Simulation.img_size)
 InOut:
-  calibration_file:  # spline calib
-  experiment_out:  # main output dir
-  checkpoint_init:   # initialise from checkpoint (i.e. resume training)
-  model_init:
+  experiment_out: # main output dir
+  checkpoint_init: # initialise from checkpoint (i.e. resume training)
 Meta:
   version:
 PostProcessing: SpatialIntegration  # (blank) for no post-processing or LookUp
 PostProcessingParam:
-  raw_th: 0.5
+  raw_th: 0.2 # this value can actually be this low. check results before you change this
 Scaling:  # if some values are missing they will be auto-set as described in the respective comments below
   # applied to the input frame ( actual_input = (input - offset) / scale )
   input_scale:  # intensity_mu / 50
@@ -100,43 +96,45 @@ Scaling:  # if some values are missing they will be auto-set as described in the
   phot_max:  # intensity_mu + 8 * sigma
   z_max:  # 1.2 * upper simulation extent
 Simulation:
-  bg_uniform:  # tuple or single value
-  density:  # either density xor emitter avg
-  emitter_av: 20  # either density xor emitter avg
-  emitter_extent:
-    - - -0.5
-      - 39.5
-    - - -0.5
-      - 39.5
-    - - -750
-      - 750
-  img_size:
+  emitter_av: 8  # average number of emitters per frame (used for testing of training convergence, training will fail if this value is too low)
+  # region the emitter coordinates are sampled in
+  # x/y currently just should be equal to segmentation mask size
+  # z is emitter z range (valid range is user-defined, as estimated from the psf approximation results)
+  emitter_extent: # tuple x/y/z, with x/y size in px, z range tuple in nm
+    - 660
+    - 950
+    - - -500
+      - 500
+  augment_rotation: False # rotate simulated dots by [-4;4] degrees
+  img_size: # size of snippets fed into the ai (make this as large as possible given the gpu vram)
     - 40
     - 40
-  intensity_mu_sig:  # tuple
-  intensity_th:
-  lifetime_avg:
-  mode: acquisition
-  photon_range:
-  psf_extent:
-    - - -0.5
-      - 39.5
-    - - -0.5
-      - 39.5
-    -
-  roi_size:  # if none, take the whole range of calibration
-  roi_auto_center: false
-  xy_unit: px
+  mode: parallel # simulate new training images in parallel while training is running (training on gpu, simulation on cpu -> utilize system resources better. doing this in parallel instead of sequential cuts training time in half)
+  roi_size:  # if none, take the whole range of calibration (therefore leave as none)
+  roi_auto_center: false # ?
+  xy_unit: px # emitter (fluorophore) coordinates in this unit (z is always nm)
+  segmentation_masks: # glob referencing segmentation masks
+  psfs: # list of PSFs used for training (can be arbitrarily long, though must be at least 1)
+    - file: # filepath to psfApproximation.mat (filename can be anything, but should end in .mat)
+      z_offset: # add (nm) to z coordinate of emitters to emulate better centered PSF (image in middle of bead stack does not necessarily represent z=0, i.e. smallest/roundest dot shape -> correct with this parameter)
+      background_offset:  # subtract this value from the psf approximation to remove noise
+      background_threshold: # after noise subtraction, set pixel values below this value to 0 for additional clean-up
+  # the 'background' section specifies the simulation parameters for the background (everything in the simulated images, except the dots)
+  # tuple values mean that for each simulated image, a value is sampled from a uniform distribution in that range
+  # single values mean that each image is simulated with the same value
+  background: # these values should be approximated with test_decode/eval/approximate_background.py
+    mean_brightness_per_volume: # cell background, can be single value or tuple
+      - 0.1
+      - 7
+    gaussian_width: 4.5 # std. dev. for the 'gaussian psf' that estimates the psf of the unbound fluorophores in the cells
+    environmental_background: # can be single value or tuple
+      - 0.5
+      - 5.0
+# just leave this. TestSet.img_size will automatically be set to Simulation.img_size
+# test_size is similar to HyperParameter.pseudo_ds_size
 TestSet:
   mode:  simulated
   test_size: 512
-  frame_extent:
-    - - -0.5
-      - 39.5
-    - - -0.5
-      - 39.5
-    - null
   img_size:
     - 40
     - 40
-
